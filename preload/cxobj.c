@@ -115,10 +115,12 @@ static const char *const mwf_syms[] = {
     "_ZN3MWF17ParamStd_TemplateIjLNS_5Param4TypeE8EED1Ev",
     "_ZN3MWF17ParamStd_TemplateIaLNS_5Param4TypeE3EEC1Ea",  /* ParamStd<signed char,3>(v) */
     "_ZN3MWF17ParamStd_TemplateIaLNS_5Param4TypeE3EED1Ev",
+    "_ZN3MWF17ParamStd_TemplateIbLNS_5Param4TypeE1EEC1Eb",  /* ParamStd<bool,1>(v) */
+    "_ZN3MWF17ParamStd_TemplateIbLNS_5Param4TypeE1EED1Ev",
     "_ZN3MWF6ObjMsgC1Ev",                                   /* ObjMsg() para la respuesta */
 };
 enum { F_MSG_CTOR, F_MSG_DTOR, F_ADD, F_RELAY, F_INT_CTOR, F_INT_DTOR, F_UINT_CTOR, F_UINT_DTOR,
-       F_SCHAR_CTOR, F_SCHAR_DTOR, F_MSG_CTOR0, NF };
+       F_SCHAR_CTOR, F_SCHAR_DTOR, F_BOOL_CTOR, F_BOOL_DTOR, F_MSG_CTOR0, NF };
 static u32 mwf[NF];
 
 static int resolve_mwf(void)
@@ -292,7 +294,7 @@ static u32 *find_param(u32 msg, u32 pid)
  * parámetros. Corre en el hilo de la app que llamó a la envoltura, así que las
  * funciones de libMWF se usan con su TLS normal.
  */
-struct iparam { u32 id, type, value; };   /* type: 7 int, 8 uint, 3 signed char */
+struct iparam { u32 id, type, value; };   /* type: 7 int, 8 uint, 3 signed char, 1 bool */
 
 u32 cxw_async(u32 obj, u32 msg) __asm__(SYM_ASYNC);
 
@@ -312,7 +314,7 @@ static u32 inject_x(u32 obj, u32 mid, const struct iparam *p, int n, int via_ui)
     ((void (*)(u32, u32, u32))mwf[F_RELAY])((u32)msg, 1, (u32)prm);
     ((void (*)(u32))mwf[F_UINT_DTOR])((u32)prm);
     for (k = 0; k < n; k++) {
-        int c = p[k].type == 8 ? F_UINT_CTOR : p[k].type == 3 ? F_SCHAR_CTOR : F_INT_CTOR;
+        int c = p[k].type == 8 ? F_UINT_CTOR : p[k].type == 3 ? F_SCHAR_CTOR : p[k].type == 1 ? F_BOOL_CTOR : F_INT_CTOR;
         for (i = 0; i < 4; i++) prm[i] = 0;
         ((void (*)(u32, u32))mwf[c])((u32)prm, p[k].value);
         ((void (*)(u32, u32, u32))mwf[F_ADD])((u32)msg, p[k].id, (u32)prm);
@@ -435,6 +437,29 @@ static u32 drive_sync(u32 obj, u32 mid, u32 pid, int step)
  * que la cámara reporte el mismo.
  */
 static volatile u32 v_fno, v_fno_min, v_sn, v_sd, v_seq[2];
+/*
+ * Balance de blancos: lo último que se le pidió a la cámara (por el panel o por la
+ * interfaz), y el ajuste con carta gris («One Push»). Órdenes copiadas de lo que
+ * manda la pantalla de fábrica (bitácora del 2026-11-27 09:27):
+ *   SET_WB_MODE         WB_MODE (tipo 7): c7 automático, c8 sol, cf interior, c3 One Push
+ *   CUSTOM_WB_CMD       CUSTOM_WB_OUT_RANGE_ADAPT = 0, CUSTOM_WB_AUTO_REVIEW = 0 (bool)
+ *   CUSTOM_WB_SAVE_CMD  CUSTOM_WB_SAVE_CH = c3
+ * La de fábrica pide después los datos (SYNC_REQ_CUSTOM_WB_DATA) y se los pasa a
+ * su modelo; eso no se hace aquí, así que no se sabe si el ajuste sobrevive al
+ * apagado.
+ */
+#define MSG_SET_WB_MODE     0x7546
+#define MSG_CUSTOM_WB       0x7542
+#define MSG_CUSTOM_WB_SAVE  0x7544
+#define MSG_SET_INIT        0x75e6
+#define P_WB_MODE           0x958d
+#define P_CWB_OUT_RANGE     0x9586
+#define P_CWB_AUTO_REVIEW   0x9587
+#define P_CWB_SAVE_CH       0x958c
+#define V_WB_AUTO           0xc7
+#define V_WB_CUSTOM1        0xc3
+static volatile u32 wb_mode = V_WB_AUTO;
+
 /* Panel propio: ganancia avisada (dB, -99 si no se sabe), tope pedido (índice, -1
  * automático), contador de cambios y pasos dados fuera de la prioridad. */
 static volatile int v_gain = -99, p_gain = -1;
@@ -570,7 +595,6 @@ static u32 *find_param_type(u32 msg, u32 pid, u32 type)
 void cxw_getinh(u32 feature, u32 msg) __asm__(SYM_GETINH);
 void cxw_getinh(u32 feature, u32 msg)
 {
-    static int logged;
     if (!r_getinh) {
         r_getinh = cx_dlsym(cx_lib_base(CX_INH_LIB), SYM_GETINH);
         if (!r_getinh) return;
@@ -585,19 +609,7 @@ void cxw_getinh(u32 feature, u32 msg)
                 if (unlocked[i] == feature) { *f = 0; break; }
         }
     }
-    if (cx_unlockiso && feature == FEAT_ISO) {
-        u32 *f = find_param_type(msg, P_INH_FLAG, 1);
-        if (f && *f) {
-            *f = 0;
-            if (cx_log_enabled() && logged < 20) {
-                struct line l;
-                logged++;
-                cxl_begin(&l, "UL");
-                cxl_lit(&l, " función 116 (ISO) contestada libre");
-                cxl_end(&l);
-            }
-        }
-    }
+
 }
 
 /* Valores de ISO y ganancia que lee la interfaz: sólo a la bitácora, al cambiar. */
@@ -657,6 +669,20 @@ u32 cxw_getparam(u32 msg, u32 id)
     if (p && !(p & 3) && (id == P_FNO || id == P_FNO_CUR_MIN || id == P_SHUT_NUMER || id == P_SHUT_DENOM)) {
         const u32 *t = (const u32 *)((const u32 *)p)[1];
         if (t && !((u32)t & 3) && t[0] == 6) note_value(id, ((const u32 *)p)[0] & 0xffff);
+    }
+    /* Lo que la cámara dice de su balance (modo y Kelvin en uso), para saber si obedece. */
+    if (p && !(p & 3) && (id == 0x9596 || id == 0x9599) && cx_log_enabled()) {
+        static u32 last[2], n;
+        u32 v = ((const u32 *)p)[0], k = id == 0x9599;
+        if (last[k] != v + 1 && n < 40) {
+            struct line l;
+            last[k] = v + 1;
+            n++;
+            cxl_begin(&l, "NW");
+            cxl_lit(&l, k ? " kelvin=" : " modo=");
+            cxl_hex(&l, v);
+            cxl_end(&l);
+        }
     }
     /* El último parámetro de cada aviso: el panel ya puede mostrar el valor nuevo. */
     if (id == P_FNO_CUR_MIN || id == P_SHUT_DENOM || id == P_ISO_GAIN_STATUS) cxpanel_hook(0);
@@ -780,9 +806,13 @@ u32 cxw_async(u32 obj, u32 msg)
         u32 newmode = 0, prev = 0;
         int aelocked = 0;
         int gain_db = -1;
-        u32 iso = 0;
         int expo_turn = 0, expo_delta = 0;
         if (msg_ids(msg, &cat, &mid) && cat == CAT_CAMERA) camera_obj = obj;
+        /* El balance que pide la interfaz (el menú de fábrica, o el arranque con SET_INIT). */
+        if (msg_ids(msg, &cat, &mid) && cat == CAT_CAMERA && (mid == MSG_SET_WB_MODE || mid == MSG_SET_INIT)) {
+            u32 *w = find_param(msg, P_WB_MODE);
+            if (w && *w != wb_mode) { wb_mode = *w; v_any++; }
+        }
         /* AE Shift como control de ganancia: cada paso fija el límite de ganancia. */
         if (cx_gainshift && msg_ids(msg, &cat, &mid) && cat == CAT_CAMERA && mid == MSG_SET_EXPOSURE_BIAS) {
             u32 *sw = find_param(msg, P_EXPOSURE_BIAS_SW), *b = find_param(msg, P_EXPOSURE_BIAS);
@@ -828,16 +858,6 @@ u32 cxw_async(u32 obj, u32 msg)
                 } else if (expo_on) {
                     expo_turn = -1;
                 }
-            }
-        }
-        /* Prueba: AE Shift como ISO fijo, de 100 a 4000 en pasos de 2/3. */
-        if (cx_isoshift && msg_ids(msg, &cat, &mid) && cat == CAT_CAMERA && mid == MSG_SET_EXPOSURE_BIAS) {
-            u32 *sw = find_param(msg, P_EXPOSURE_BIAS_SW), *b = find_param(msg, P_EXPOSURE_BIAS);
-            if (sw && b) {
-                int k = (int)*b;
-                if (k < -4) k = -4;
-                if (k > 4) k = 4;
-                iso = *sw == V_EXPOSURE_BIAS_ON ? V_ISO_100 + 2 * (u32)(k + 4) : V_ISO_AUTO;
             }
         }
         if (msg_ids(msg, &cat, &mid) && cat == CAT_CAMERA && mid == MSG_SET_EXPOSURE_MODE) {
@@ -923,13 +943,6 @@ u32 cxw_async(u32 obj, u32 msg)
         if (expo_turn == -1) {
             inject(camera_obj, MSG_SET_MANUAL_EXPOSURE_MODE, P_MANUAL_EXPOSURE_MODE, V_MANUAL_EXP_OFF);
             expo_on = 0;
-        }
-        if (iso) {
-            struct iparam p[3];
-            p[0].id = P_ISO_SPEED_RATE;     p[0].type = 7; p[0].value = iso;
-            p[1].id = P_ISO_SPEED_RATE_MIN; p[1].type = 7; p[1].value = iso == V_ISO_AUTO ? V_ISO_100 : iso;
-            p[2].id = P_ISO_SPEED_RATE_MAX; p[2].type = 7; p[2].value = iso == V_ISO_AUTO ? V_ISO_6400 : iso;
-            inject_n(camera_obj, MSG_SET_ISO_SPEED_RATE, p, 3);
         }
         if (gain_db != -1) {
             struct iparam p[2];
@@ -1058,6 +1071,29 @@ void cxobj_panel_gain(int idx)
     p[0].id = P_AGC_LIMIT;      p[0].type = 3; p[0].value = idx >= 0 ? (u32)(idx * 3) : 0;
     p[1].id = P_AGC_LIMIT_MODE; p[1].type = 8; p[1].value = idx >= 0 ? V_AGC_LIMIT_ON : V_AGC_LIMIT_OFF;
     inject_n(camera_obj, MSG_SET_AGC_LIMIT, p, 2);
+}
+
+u32 cxobj_panel_wb_get(void) { return wb_mode; }
+
+/* Balance de blancos: un VALUEID_WB_*. */
+void cxobj_panel_wb(u32 mode)
+{
+    if (!cxobj_panel_ready()) return;
+    wb_mode = mode;
+    v_any++;
+    inject(camera_obj, MSG_SET_WB_MODE, P_WB_MODE, mode);
+}
+
+/* Toma el blanco de lo que hay frente a la cámara (la carta gris) y lo guarda en One Push. */
+void cxobj_panel_onepush(void)
+{
+    struct iparam p[2];
+    if (!cxobj_panel_ready()) return;
+    if (wb_mode != V_WB_CUSTOM1) cxobj_panel_wb(V_WB_CUSTOM1);
+    p[0].id = P_CWB_OUT_RANGE;   p[0].type = 1; p[0].value = 0;
+    p[1].id = P_CWB_AUTO_REVIEW; p[1].type = 1; p[1].value = 0;
+    inject_n(camera_obj, MSG_CUSTOM_WB, p, 2);
+    inject(camera_obj, MSG_CUSTOM_WB_SAVE, P_CWB_SAVE_CH, V_WB_CUSTOM1);
 }
 
 void cxobj_start(void)

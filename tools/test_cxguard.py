@@ -83,7 +83,7 @@ class InstallTest(unittest.TestCase):
 
     def test_shipped_configs_are_valid(self):
         here = os.path.dirname(os.path.abspath(__file__))
-        for name in ('cxmode-v9.txt', 'cxmode-v12.txt', 'cxmode-v13.txt', 'cxmode-v14.txt', 'cxmode-v15.txt', 'cxmode-v15b.txt', 'cxmode-v16.txt', 'cxmode-v18.txt', 'cxmode-v18b.txt', 'cxmode-v18c.txt', 'cxmode-v18d.txt', 'cxmode-v19u.txt', 'cxmode-v19k.txt', 'cxmode-v20.txt', 'cxmode-v21p.txt', 'cxmode-v23p.txt', 'cxmode-v24p.txt',
+        for name in ('cxmode-v9.txt', 'cxmode-v12.txt', 'cxmode-v13.txt', 'cxmode-v14.txt', 'cxmode-v15.txt', 'cxmode-v15b.txt', 'cxmode-v16.txt', 'cxmode-v18.txt', 'cxmode-v18b.txt', 'cxmode-v18c.txt', 'cxmode-v18d.txt', 'cxmode-v19u.txt', 'cxmode-v19k.txt', 'cxmode-v20.txt', 'cxmode-v21p.txt', 'cxmode-v23p.txt', 'cxmode-v24p.txt', 'cxmode-v25p.txt', 'cxmode-v26p.txt', 'cxmode-v28p.txt',
                      'cxmode-v18r.txt', 'cxmode-v18u.txt'):
             with open(os.path.join(here, '..', 'preload', name)) as f:
                 text = f.read()

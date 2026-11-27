@@ -3,12 +3,14 @@
  * vista, cada uno con su automático, y se ajustan tocando, sin entrar al menú.
  *
  *                                                   [ + ]   orilla derecha,
- *                                                   [ - ]   donde iban W y T
+ *                                                   AUTO    donde iban W y T
+ *                                                   [ - ]
  *     F2.6    1/180    [12dB]                               abajo
  *
- * - Tocar un valor lo elige (queda entre corchetes). Tocarlo otra vez lo pasa de
- *   automático a manual o al revés. En automático lleva una A al final; la
- *   ganancia automática dice AGC y los dB que avisa la cámara.
+ * - Tocar un valor lo elige (queda entre corchetes). AUTO, o tocar otra vez el
+ *   valor elegido, lo pasa de automático a manual o al revés. En automático
+ *   lleva una A al final; la ganancia automática dice AGC y los dB que avisa la
+ *   cámara.
  * - «+» y «-» mueven el valor elegido. El primer toque sobre un control en
  *   automático sólo lo fija donde está, como en las pantallas de fábrica.
  *
@@ -34,12 +36,17 @@
  * cxmode.txt:  panel 1              sólo dibuja
  *              panel 2              dibuja y atiende el tacto
  *              panelz N X Y W H     zona N (0 «-», 1 iris, 2 obturación, 3 ganancia,
- *                                   4 «+») en el espacio de 640x480
+ *                                   4 «+», 5 AUTO, 6 balance) en el espacio de 640x480
+ *              panelwb 1            lectura de balance de blancos (preajustes y One Push)
  *              panelfont N HEX      N: 0 fuente, 1 tamaño, 2 estilo, 3 alineación, 4 dirección
  *              paneldraw 0          no llamar a TextSprite::drawText a mano
  *              paneldump 1          anota el árbol de widgets en el primer toque
  *              hidebox X Y W H      oculta lo nativo que quepa entero en esa caja
  *              hidew HEX            oculta el widget con ese ID
+ *              hidevt HEX           oculta los widgets de esa clase (tabla virtual menos
+ *                                   la base de libObj.so, como sale en las líneas PW)
+ *              keepbox X Y W H      con alguna keepbox, de la pantalla de grabación sólo
+ *                                   queda lo que toca una de esas cajas; lo demás se oculta
  */
 #include "cx.h"
 
@@ -71,7 +78,7 @@ static const char *const sym[NFN] = {
 };
 static u32 fn[NFN], lib_base;
 
-#define NLAB 5
+#define NLAB 7                /* la séptima (balance) sólo con panelwb */
 #define LABEL_BYTES 0x290
 #define SPRITE 0x144          /* el TextSprite dentro de la GEN_Label */
 #define DIRTY 0x285
@@ -85,36 +92,52 @@ static u32 fn[NFN], lib_base;
 #define TEXT_MAX 16
 #define NHOOK 6
 #define NBOX 4
+#define NKEEP 6
 #define NHIDEID 12
-#define NHID 32
+#define NHIDEVT 8
+#define NHID 80
+#define QUIET_SECS 8
 #define MAX_DEPTH 12
 #define MAX_WALK 900
 #define MAX_DUMP 440
 #define NTOP 8
 
-int cx_panel, cx_panel_draw = 1, cx_panel_dump;
-/* x, y, ancho y alto de: «-», iris, obturación, ganancia, «+». */
+int cx_panel, cx_panel_draw = 1, cx_panel_dump, cx_panel_wb;
+/* x, y, ancho y alto de: «-», iris, obturación, ganancia, «+», AUTO, balance. */
 int cx_panel_rect[NLAB][4] = {
-    { 572, 262, 68, 90 },
+    { 572, 290, 68, 90 },
     { 110, 418, 100, 52 },
     { 210, 418, 120, 52 },
     { 330, 418, 100, 52 },
-    { 572, 142, 68, 90 },
+    { 572, 110, 68, 90 },
+    { 572, 205, 68, 80 },
+    { 4, 418, 104, 52 },             /* balance de blancos, donde iba el botón de ver imágenes */
 };
 u32 cx_panel_font[5] = { 0x2038000, 0x203e010, 0x203e003, 0x2036029, 0x2038002 };
 
 static u32 mem[NLAB][LABEL_BYTES / 4 + 4] __attribute__((aligned(8)));
 static char cur[NLAB][TEXT_MAX];
 static int created, failed, shown, mode_shown;
-static int sel;                      /* 0 iris, 1 obturación, 2 ganancia */
+static int sel;                      /* 0 iris, 1 obturación, 2 ganancia, 3 balance */
+static int nlab = NLAB - 1;          /* etiquetas en uso */
+static int wb_pre = 1;               /* preajuste al que vuelve AUTO desde el automático */
+static u32 wb_set_sec;                /* hasta cuándo la lectura dice SET tras fijar con la carta */
+#define V_WB_AUTO 0xc7
+#define V_WB_DAYLIGHT 0xc8
+#define V_WB_INCANDESCENT 0xcf
+#define V_WB_ONEPUSH 0xc3
 static u32 ui_tid, seen_seq = 0xffffffffu;
 static int force;
 static int base_movie, depth;
 static u32 stack[6];
 static u32 n_all[NHOOK], n_ui[NHOOK], stat_sec, n_stat;
 static int box[NBOX][4], nbox;
-static u32 hideid[NHIDEID];
-static int nhideid;
+static int keep[NKEEP][4], nkeep;
+static u32 hideid[NHIDEID], hidevt[NHIDEVT];
+static int nhideid, nhidevt;
+/* Mientras hay un aviso encima (CAUTION, cambio de modo) no se busca qué más
+ * ocultar: sus piezas no son de la pantalla de grabación. */
+static u32 quiet_until;
 static struct { u32 w, id, vt; } hid[NHID];
 static int nhid, need_scan, dumped, n_hidelog, n_fight;
 static u32 scan_sec;
@@ -123,6 +146,17 @@ static u32 tops[NTOP];
 static int ntops, n_toplog;
 
 static u32 gettid(void) { return (u32)sys3(224 /* gettid */, 0, 0, 0); }
+
+/*
+ * Lo que NO sirve para saber qué pantalla está a la vista (v26, 2026-11-27):
+ * contar las vistas vivas con el constructor y el destructor de ViewBase. El
+ * menú principal sigue vivo después de cerrarse, así que se aprendía como «de
+ * casa» y, con el menú abierto, el panel creía estar sobre la pantalla de
+ * grabación y le ocultaba los botones al menú.
+ */
+void cxpanel_start(void)
+{
+}
 
 void cxpanel_hidebox(int x, int y, int w, int h)
 {
@@ -134,6 +168,18 @@ void cxpanel_hidebox(int x, int y, int w, int h)
 void cxpanel_hideid(u32 id)
 {
     if (id && nhideid < NHIDEID) hideid[nhideid++] = id;
+}
+
+void cxpanel_hidevt(u32 vt)
+{
+    if (vt && nhidevt < NHIDEVT) hidevt[nhidevt++] = vt;
+}
+
+void cxpanel_keepbox(int x, int y, int w, int h)
+{
+    if (nkeep >= NKEEP) return;
+    keep[nkeep][0] = x; keep[nkeep][1] = y; keep[nkeep][2] = w; keep[nkeep][3] = h;
+    nkeep++;
 }
 
 static void say(const char *what, u32 a, u32 b)
@@ -200,7 +246,8 @@ static void create(void)
 {
     int i;
     if (!resolve()) { failed = 1; return; }
-    for (i = 0; i < NLAB; i++) make(i);
+    nlab = cx_panel_wb ? NLAB : NLAB - 1;
+    for (i = 0; i < nlab; i++) make(i);
     mode_shown = ((const u8 *)mem[0])[W_MODE];
     created = shown = 1;
     force = 1;
@@ -252,11 +299,13 @@ static void refresh(void)
     int g, gi;
     char b[TEXT_MAX + 8], *p;
     seq = cxobj_panel_get(&fno, &sn, &sd, &g, &gi);
+    if (wb_set_sec && cx_now(0) >= wb_set_sec) { wb_set_sec = 0; force = 1; }   /* se acabó el «OK» */
     if (seq == seen_seq && !force) return;
     seen_seq = seq;
 
     text(0, "-");
     text(4, "+");
+    if (!cx_panel_wb) text(5, "AUTO");
 
     p = b;
     if (sel == 0) *p++ = '[';
@@ -291,6 +340,18 @@ static void refresh(void)
     if (sel == 2) *p++ = ']';
     *p = 0;
     text(3, b);
+
+    if (cx_panel_wb) {
+        u32 m = cxobj_panel_wb_get();
+        text(5, sel == 3 && m == V_WB_ONEPUSH ? "SET" : "AUTO");
+        p = b;
+        if (sel == 3) *p++ = '[';
+        p = put(p, wb_set_sec ? "OK" : m == V_WB_AUTO ? "AWB" : m == V_WB_DAYLIGHT ? "SOL" :
+                   m == V_WB_INCANDESCENT ? "INT" : m == V_WB_ONEPUSH ? "1P" : "WB");
+        if (sel == 3) *p++ = ']';
+        *p = 0;
+        text(6, b);
+    }
     force = 0;
 }
 
@@ -298,14 +359,23 @@ static void refresh(void)
 
 static int unwanted(u32 w, int x, int y, int ww, int hh)
 {
-    u32 id = *(const u32 *)(w + W_ID);
+    u32 id = *(const u32 *)(w + W_ID), vt = *(const u32 *)w - lib_base;
     int i;
     for (i = 0; i < nhideid; i++)
         if (hideid[i] == id) return 1;
-    if (ww <= 0 || hh <= 0) return 0;
+    for (i = 0; i < nhidevt; i++)
+        if (hidevt[i] == vt) return 1;
+    if (ww <= 0 || hh <= 0) return 0;          /* contenedores sin tamaño: se mira adentro */
     for (i = 0; i < nbox; i++)
         if (x >= box[i][0] && y >= box[i][1] && x + ww <= box[i][0] + box[i][2] && y + hh <= box[i][1] + box[i][3])
             return 1;
+    if (nkeep) {
+        /* «Todo menos»: lo que no toca ninguna caja de las que se conservan, fuera. */
+        for (i = 0; i < nkeep; i++)
+            if (x < keep[i][0] + keep[i][2] && x + ww > keep[i][0] && y < keep[i][1] + keep[i][3] && y + hh > keep[i][1])
+                return 0;
+        return 1;
+    }
     return 0;
 }
 
@@ -347,7 +417,7 @@ static int walk(u32 w, int brothers, int dump, int *lines)
     int ox[MAX_DEPTH], oy[MAX_DEPTH], d = 0, count = 0, i;
     ox[0] = oy[0] = 0;
     while (w && count < MAX_WALK) {
-        int mine = 0, x, y, ww, hh;
+        int mine = 0, gone = 0, x, y, ww, hh;
         u32 c = 0, n;
         count++;
         for (i = 0; i < NLAB; i++)
@@ -362,6 +432,7 @@ static int walk(u32 w, int brothers, int dump, int *lines)
                 if ((++*lines & 31) == 0) cx_log_sync();   /* el búfer de la bitácora es chico */
             }
             if (d >= 1 && unwanted(w, x, y, ww, hh)) {
+                gone = 1;
                 if (((const u8 *)w)[W_MODE] != MODE_HIDDEN) ((void (*)(u32, int))fn[F_MODE])(w, MODE_HIDDEN);
                 if (nhid < NHID) {
                     hid[nhid].w = w;
@@ -371,7 +442,8 @@ static int walk(u32 w, int brothers, int dump, int *lines)
                 }
                 if (n_hidelog < 40) { n_hidelog++; say("oculto", *(const u32 *)(w + W_ID), ((u32)x << 16) | ((u32)y & 0xffff)); }
             }
-            if (d < MAX_DEPTH - 1) c = ((u32 (*)(u32))fn[F_CHILD])(w);
+            /* Dentro de algo ya oculto no hace falta mirar (salvo para anotar el mapa). */
+            if (d < MAX_DEPTH - 1 && (!gone || dump)) c = ((u32 (*)(u32))fn[F_CHILD])(w);
             if (c) {
                 up[d] = w;
                 d++;
@@ -406,7 +478,7 @@ static void scan(int dump)
     int count = 0, lines = 0, i;
     nhid = 0;
     need_scan = 0;
-    if (!created || (!dump && !nbox && !nhideid)) return;
+    if (!created || (!dump && !nbox && !nhideid && !nhidevt && !nkeep)) return;
     pn = *(const u32 *)((u32)mem[0] + 8);
     if (pn && !(pn & 3)) root = *(const u32 *)pn;
     if (root && !(root & 3) && root != (u32)mem[0]) first = ((u32 (*)(u32))fn[F_CHILD])(root);
@@ -426,7 +498,7 @@ void cxpanel_native(u32 w)
     u32 top = w;
     int i;
     if (!cx_panel || !created || !shown || !w || (w & 3) || ntops >= NTOP) return;
-    if (!nbox && !nhideid && !cx_panel_dump) return;
+    if (!nbox && !nhideid && !nhidevt && !nkeep && !cx_panel_dump) return;
     if (!ui_tid || gettid() != ui_tid) return;
     for (i = 0; i < NLAB; i++)
         if (w == (u32)mem[i]) return;
@@ -466,7 +538,7 @@ static void apply(void)
     if (want && !created && !failed) create();
     if (!created) return;
     if (want != shown) {
-        for (i = 0; i < NLAB; i++)
+        for (i = 0; i < nlab; i++)
             ((void (*)(u32, int))fn[F_MODE])((u32)mem[i], want ? mode_shown : MODE_HIDDEN);
         shown = want;
         force = 1;
@@ -474,9 +546,9 @@ static void apply(void)
     }
     if (shown) {
         /* Las vistas que se abrieron después quedan encima: el panel vuelve al frente. */
-        for (i = 0; i < NLAB; i++)
+        for (i = 0; i < nlab; i++)
             if (((u32 (*)(u32))fn[F_NEXT])((u32)mem[i])) ((void (*)(u32))fn[F_LAST])((u32)mem[i]);
-        scan(0);
+        if (cx_now(0) >= quiet_until) scan(0);
         refresh();
     }
 }
@@ -504,26 +576,45 @@ static u32 hname(const char *s)
     return h ? h : 1;
 }
 
+/* Pantallas de fábrica que se ajustan sobre la imagen en vivo (bitácoras del 2026-11-27). */
+static int over_image(const char *n)
+{
+    static const char *const live[] = { "IRIS", "SHUTTER_SPEED", "AE_SHIFT", "WB_SHIFT", "WHITE_BALANCE",
+                                        "EXPOSURE", "SPOT_", "FOCUS", "AGC_LIMIT", "TELE_MACRO" };
+    unsigned i;
+    for (i = 0; i < sizeof(live) / sizeof(live[0]); i++)
+        if (starts(n, live[i])) return 1;
+    return 0;
+}
+
 /*
- * Después de la openView/closeView original. Las pantallas que no son un menú
- * cierran los menús que hubiera debajo sin avisar (bitácoras del 2026-11-27),
- * así que una pantalla nueva vacía la pila; un menú se apila.
+ * Después de la openView/closeView original. Se lleva una pila con lo que hay
+ * encima de la pantalla de grabación; el panel sólo se ve con la pila vacía.
  */
 void cxpanel_view(const char *name, int opening)
 {
     if (!cx_panel || !name) return;
     if (!ui_tid) ui_tid = gettid();
     if (gettid() != ui_tid) return;
+    if (starts(name, "view/POWER_ILLUSTRATION") || starts(name, "view/CAUTION")) {
+        /* Un aviso encima de la pantalla de grabación: mientras esté, no se busca
+         * qué más ocultar (lo ya oculto se mantiene). Si no avisa que cerró, vence solo. */
+        quiet_until = opening ? cx_now(0) + QUIET_SECS : 0;
+        need_scan = 1;
+        return;
+    }
     nhid = 0;                        /* con cada cambio de pantalla los widgets pueden ser otros */
     ntops = 0;
-    if (starts(name, "view/POWER_ILLUSTRATION") || starts(name, "view/CAUTION")) { need_scan = 1; return; }
     if (opening) {
         if (starts(name, "view/MOV_REC")) { base_movie = 1; depth = 0; }
         else if (starts(name, "view/STL_REC")) { base_movie = 0; depth = 0; }
         else {
             u32 h = hname(name);
-            /* El menú principal siempre es el primero de su cadena. */
-            if (!has(name, "_MENU") || starts(name, "view/GLOBAL_MENU")) depth = 0;
+            /* El menú principal siempre es el primero de su cadena, y las pantallas de
+             * ajuste sobre la imagen cierran los menús sin avisar. Las demás (listas de
+             * opciones como REC_MODE o PB_DEMO_CAM_SET) se abren dentro del menú y al
+             * cerrarse se vuelve a él: se apilan encima. */
+            if (starts(name, "view/GLOBAL_MENU") || over_image(name + 5)) depth = 0;
             if (!(depth && stack[depth - 1] == h) && depth < 6) stack[depth++] = h;
         }
     } else {
@@ -556,7 +647,7 @@ void cxpanel_hook(int h)
     if (h != 0) {
         /* Un recorrido por segundo (la vista se arma y se rearma sin avisar) y, entre
          * recorridos, se vuelve a ocultar lo que la vista haya vuelto a mostrar. */
-        if (need_scan || sec != scan_sec) { scan_sec = sec; scan(0); }
+        if (sec >= quiet_until && (need_scan || sec != scan_sec)) { scan_sec = sec; scan(0); }
         else enforce();
     }
     if (n_stat < 16 && sec - stat_sec >= 3 && cx_log_enabled()) {
@@ -574,6 +665,30 @@ void cxpanel_hook(int h)
         }
         cxl_end(&l);
     }
+}
+
+/*
+ * Balance: «+» y «-» pasan por automático, sol, interior y One Push. Con One
+ * Push elegido, el botón de la derecha dice SET y fija el blanco con lo que la
+ * cámara tiene enfrente (la carta gris); con los demás dice AUTO y va y vuelve
+ * del automático.
+ */
+static const u32 wb_list[4] = { V_WB_AUTO, V_WB_DAYLIGHT, V_WB_INCANDESCENT, V_WB_ONEPUSH };
+
+static void wb_act(int dir)
+{
+    u32 m = cxobj_panel_wb_get();
+    int i = m == wb_list[1] ? 1 : m == wb_list[2] ? 2 : m == wb_list[3] ? 3 : 0;
+    wb_set_sec = 0;
+    if (dir == 0) {
+        if (i == 3) { cxobj_panel_onepush(); wb_set_sec = cx_now(0) + 2; return; }
+        if (i) wb_pre = i;
+        cxobj_panel_wb(i ? V_WB_AUTO : wb_list[wb_pre]);
+        return;
+    }
+    i = (i + dir) & 3;
+    if (i) wb_pre = i;
+    cxobj_panel_wb(wb_list[i]);
 }
 
 static void gain_act(int dir)   /* 0: alternar automático; +1/-1: paso */
@@ -594,26 +709,31 @@ static void gain_act(int dir)   /* 0: alternar automático; +1/-1: paso */
 /* Un toque en (x, y). 1 si cayó en el panel: entonces no pasa a la interfaz. */
 int cxpanel_press(int x, int y)
 {
-    int z;
+    int z, v;
     if (!cx_panel || !ui_tid || gettid() != ui_tid) return 0;
     apply();                         /* un toque también es buen momento para crear o traer al frente */
     if (!created || !shown) return 0;
     if (cx_panel_dump && !dumped) { dumped = 1; scan(1); }
     if (cx_panel < 2) return 0;
-    for (z = 0; z < NLAB; z++) {
+    for (z = 0; z < nlab; z++) {
         const int *r = cx_panel_rect[z];
         if (x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3]) break;
     }
-    if (z == NLAB) return 0;
+    if (z == nlab) return 0;
     say("toque", (u32)z, (u32)sel);
-    if (z >= 1 && z <= 3) {
-        if (sel != z - 1) sel = z - 1;
+    v = z == 6 ? 3 : z - 1;          /* qué valor es esa zona (si es una de valor) */
+    if (z != 0 && z != 4 && z != 5 && sel != v) {
+        sel = v;
+    } else if (z != 0 && z != 4) {
+        /* AUTO, o el valor que ya estaba elegido: de automático a manual y al revés. */
+        if (sel == 3) wb_act(0);
         else if (sel == 2) gain_act(0);
         else if (sel == 0 ? cx_iris_held : cx_shutter_held) cxobj_panel_auto(sel);
         else cxobj_panel_manual(sel);
     } else {
         int dir = z == 0 ? -1 : 1;
-        if (sel == 2) gain_act(dir);
+        if (sel == 3) wb_act(dir);
+        else if (sel == 2) gain_act(dir);
         else cxobj_panel_step(sel, dir);
     }
     force = 1;

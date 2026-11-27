@@ -4,10 +4,10 @@
 CC      = arm-linux-gnueabi-gcc
 ARCH    = -march=armv6 -marm -mfloat-abi=soft
 CFLAGS  = $(ARCH) -Os -fPIC -Wall -Wextra -ffreestanding -fno-stack-protector -fno-builtin
-LDFLAGS = -shared -nostdlib -nostartfiles -Wl,--hash-style=both -Wl,-s -Wl,-z,norelro \
+LDFLAGS = -shared -nostdlib -nostartfiles -Wl,--hash-style=both -Wl,-s -Wl,-z,norelro -Wl,-T,cxg.ld \
           -Wl,-soname,cxg.so -Wl,--build-id=none
 SRC     = cxguard.c cxinh.c cxdl.c cxlog.c cxview.c cxobj.c cxtext.c cxmenu.c cxtouch.c cxpanel.c
-HDR     = cx.h
+HDR     = cx.h cxg.ld
 # Rutas del host para la variante de prueba (QEMU no traduce archivos nuevos).
 TEST_DIR ?= /tmp/cxtest
 
@@ -30,7 +30,7 @@ cxg-test.so: $(SRC) cxux.c $(HDR)
 	  -DCX_APP_NAME='"cxtest"' -DCX_VIEW_LIB='"/libcxt.so"' -DCX_OBJ_LIB='"/libcxt.so"' -DCX_INH_LIB='"/libcxt.so"' -DCX_TEXT_LIB='"/libcxt.so"' \
 	  -DCX_T1=1 -DCX_T2=2 -DCX_FLUSH_SECS=1 \
 	  -DCX_PEND_MS=0 -DCX_FIX_SETTLE_MS=0 -DCX_FIX_WAIT_MS=1000 \
-	  -DCX_UX -DCX_UX_LIB='"/libcxt.so"' -DCX_TOUCH_LIB='"/libcxt.so"' -DCX_PANEL_LIB='"/libcxt.so"' \
+	  -DCX_UX -DCX_UX_LIB='"/libcxt.so"' -DCX_TOUCH_LIB='"/libcxt.so"' -DCX_PANEL_LIB='"/libcxt.so"' -DCX_VIEWBASE_LIB='"/libcxt.so"' \
 	  -DCX_MENU_LIB='"/libcxt.so"' -DCX_MENU_VIEW_LIB='"/cxtest"' -o $@ $(SRC) cxux.c
 
 # Hace de libObj.so en la prueba.

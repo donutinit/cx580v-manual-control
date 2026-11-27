@@ -19,7 +19,8 @@ ajustables sin entrar al menú:
 ```
 
 - **Tocar un valor** lo elige: queda entre corchetes.
-- **Tocar el valor ya elegido** lo pasa de automático a manual o al revés. En
+- **AUTO** (o tocar otra vez el valor ya elegido) lo pasa de automático a manual
+  o al revés. En
   automático lleva una `A` al final (`F2.8A`, `1/60A`); la ganancia automática
   dice `AGC` y los dB que avisa la cámara (`AGC27`).
 - **`-` y `+`** mueven el valor elegido. El primer toque sobre un control en
@@ -92,6 +93,12 @@ botón START/STOP.
 | v22 | la misma | entra por el nodo del padre (`+8`, y su dueño en `+0`); se fueron W, T y «0EV», quedaron «180» y grabar |
 | v23 | `cxmode-v23p.txt`: cajas más anchas, mapa completo | se fue «180»; grabar no, porque mide 54×127 desde (586, 354) y llega a y = 481 |
 | v24 (`cxg-v24.so`, md5 `35cf3cc5…`) | `cxmode-v24p.txt`: `hidebox 530 120 110 372` y `hidebox 78 425 356 55` | pantalla limpia, confirmado por el dueño con foto |
+| v25 | `cxmode-v25p.txt`: «todo menos» con tres `keepbox` (MENU, indicador de grabación, medidor de audio) y `hidevt 11d1444` (STBY); Audio Mode otra vez en el menú | el dueño confirma que funciona como se esperaba; al cambiar Audio Mode el panel no volvió hasta abrir y cerrar otra pantalla |
+| v26 | `cxmode-v26p.txt`: lo mismo, con Demo Mode otra vez en el menú | botón AUTO: funciona. El regreso automático del panel ocultó los botones del menú principal |
+| v27 | `cxmode-v26p.txt` | la v26 sin el seguimiento de vistas vivas; el dueño confirma que los menús se ven bien |
+| v28 | `cxmode-v28p.txt` (`panelwb 1`) | lectura de balance: AWB, SOL, INT y 1P. La cámara acepta los tres preajustes y avisa el cambio (`NW modo=c8/cf/c3`) |
+| v29 | la misma | las listas de opciones (REC_MODE, PB_DEMO_CAM_SET…) cuentan como parte del menú: al cerrarse, el panel sigue oculto |
+| v30 (`cxg-v30.so`, md5 `3790c9d2…`) | la misma | One Push desde el panel: con 1P elegido el botón dice SET y fija el blanco con la carta gris. El dueño confirma que funciona. Sin Kelvin ni los experimentos de ISO |
 
 ### Lo que enseñó el mapa de la pantalla
 
@@ -119,11 +126,56 @@ Otras medidas de esas sesiones: `ViewBase::getModelInfo` se llama unas 80 veces
 por segundo en el hilo de la interfaz, así que sirve de reloj para refrescar
 los textos; `GraphicsEngine::updateResource` corre en otro hilo y no sirve.
 
+### Lo que enseñó la sesión de la v25
+
+- **Elegir una opción en un menú cierra todo sin `closeView`**, y el panel se
+  queda oculto hasta abrir y cerrar otra pantalla. La v26 intentó resolverlo
+  contando las vistas vivas con el constructor y el destructor de `ViewBase`
+  (`_ZN8ViewBaseC2EP11ViewManager`, `_ZN8ViewBaseD2Ev`). **No sirve y rompió el
+  menú**: el menú principal sigue vivo después de cerrarse, se aprendió como
+  parte de la pantalla de grabación y, con el menú abierto, el «todo menos» le
+  ocultó sus botones. La v27 quita ese mecanismo. Sigue pendiente una señal
+  fiable de qué pantalla está a la vista.
+- **Cambiar Audio Mode hace que la interfaz reenvíe sus ajustes**, entre ellos
+  `SET_EXPOSURE_MODE` en automático: lo que se había fijado desde el panel se
+  pierde, porque el modelo de la interfaz no lo conoce. El panel lo muestra
+  bien, pero hay que volver a fijarlo.
+- **Los ID de los widgets cambian de un arranque a otro** (corridos en uno en
+  esa sesión): confirma que no sirven para identificar nada.
+- La interfaz recibió `ret=a000` seis veces en `0x6500` (el zoom) con la
+  obturación en 1/15. Causa sin determinar.
+
+### Tamaño de la biblioteca
+
+`cxg.so` v30 mide 48 068 bytes y el instalador acepta hasta 49 152 (tres
+bloques de `/setting`). Quedan 1 084 bytes. Se enlaza sin tabla de símbolos y
+sin relro; además el enlazador mete hasta 4 KiB de relleno entre el código y
+los datos cuando eso le ahorra una página de memoria; `preload/cxg.ld` fija la
+forma sin relleno. Antes de agregar más código hay que hacer
+sitio: quitar los experimentos de ISO que no sirvieron o hacer que el
+instalador cuente los bloques que ya ocupa la biblioteca instalada.
+
+### Balance de blancos y One Push
+
+Órdenes copiadas de lo que manda la pantalla de fábrica
+(`backups/20261127-092723-guard-install/cxreq.log`):
+
+| Qué | Mensaje | Parámetros |
+| --- | --- | --- |
+| preajuste | `SET_WB_MODE` (`0x7546`) | `WB_MODE` (`0x958d`, tipo 7): `c7` automático, `c8` sol, `cf` interior, `c3` One Push |
+| tomar el blanco | `CUSTOM_WB_CMD` (`0x7542`) | `CUSTOM_WB_OUT_RANGE_ADAPT` (`0x9586`) = 0 y `CUSTOM_WB_AUTO_REVIEW` (`0x9587`) = 0, los dos bool |
+| guardarlo | `CUSTOM_WB_SAVE_CMD` (`0x7544`) | `CUSTOM_WB_SAVE_CH` (`0x958c`) = `c3` |
+
+La pantalla de fábrica pide después los datos (`SYNC_REQ_CUSTOM_WB_DATA_CMD`,
+`0x650c`, con `CUSTOM_WB_CH` = `c3`) y se los pasa a su modelo (acciones `0x14`
+y `0x15` de `model/CAMERA`). El panel no hace ese paso: falta saber si un
+ajuste tomado desde el panel sobrevive al apagado.
+
 ## Lo que no hace todavía
 
 - No se guarda nada al apagar.
 - No hay repetición al dejar el dedo apoyado: un toque, un paso.
-- Foco y balance de blancos siguen en el menú.
+- El foco sigue en el menú.
 - El modelo de la interfaz de fábrica no se entera de lo que hace el panel. Si
   después se abre la pantalla IRIS de fábrica, muestra el valor real pero su
   botón de automático puede no coincidir.

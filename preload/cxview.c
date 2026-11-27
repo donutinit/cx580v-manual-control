@@ -112,9 +112,7 @@ static u32 aeauto;                       /* 0: sin reescritura */
 int cx_objmanual;
 int cx_holdmanual;
 int cx_gainshift;
-int cx_isoshift;
 int cx_expogain;
-int cx_unlockiso;
 int cx_autounlock;
 int cx_gainlock;
 /* ¿Está abierta la pantalla de iris o la de obturación? Otras pantallas que se
@@ -566,12 +564,8 @@ static void read_mode(void)
             if (v >= 1 && v <= 6) aemode = v;
         } else if (nw == 2 && same(w[0], "gainshift")) {
             cx_gainshift = parse_dec(w[1]) == 1;
-        } else if (nw == 2 && same(w[0], "isoshift")) {
-            cx_isoshift = parse_dec(w[1]) == 1;
         } else if (nw == 2 && same(w[0], "expogain")) {
             cx_expogain = parse_dec(w[1]) == 1;
-        } else if (nw == 2 && same(w[0], "unlockiso")) {
-            cx_unlockiso = parse_dec(w[1]) == 1;
         } else if (nw == 2 && same(w[0], "autounlock")) {
             cx_autounlock = parse_dec(w[1]) == 1;
         } else if (nw == 3 && same(w[0], "label")) {
@@ -596,7 +590,7 @@ static void read_mode(void)
             }
         } else if (nw == 6 && same(w[0], "panelz")) {
             u32 k = parse_dec(w[1]), x = parse_dec(w[2]), y = parse_dec(w[3]), pw = parse_dec(w[4]), ph = parse_dec(w[5]);
-            if (k < 5 && pw >= 16 && ph >= 16 && x + pw <= 640 && y + ph <= 480) {
+            if (k < 7 && pw >= 16 && ph >= 16 && x + pw <= 640 && y + ph <= 480) {
                 cx_panel_rect[k][0] = (int)x; cx_panel_rect[k][1] = (int)y;
                 cx_panel_rect[k][2] = (int)pw; cx_panel_rect[k][3] = (int)ph;
             }
@@ -606,11 +600,19 @@ static void read_mode(void)
             if (bw >= 8 && bh >= 8 && x + bw <= 720 && y + bh <= 560) cxpanel_hidebox((int)x, (int)y, (int)bw, (int)bh);
         } else if (nw == 2 && same(w[0], "hidew")) {
             cxpanel_hideid(parse_hex_n(w[1], 8));
+        } else if (nw == 2 && same(w[0], "hidevt")) {
+            cxpanel_hidevt(parse_hex_n(w[1], 8));
+        } else if (nw == 5 && same(w[0], "keepbox")) {
+            u32 x = parse_dec(w[1]), y = parse_dec(w[2]), bw = parse_dec(w[3]), bh = parse_dec(w[4]);
+            if (bw >= 4 && bh >= 4 && x + bw <= 640 && y + bh <= 480) cxpanel_keepbox((int)x, (int)y, (int)bw, (int)bh);
         } else if (nw == 2 && same(w[0], "paneldump")) {
             cx_panel_dump = parse_dec(w[1]) == 1;
         } else if (nw == 3 && same(w[0], "panelfont")) {
             u32 k = parse_dec(w[1]);
             if (k < 5) cx_panel_font[k] = parse_hex_n(w[2], 8);
+        } else if (nw == 2 && same(w[0], "panelwb")) {
+            u32 v = parse_dec(w[1]);
+            if (v <= 2) cx_panel_wb = (int)v;
         } else if (nw == 2 && same(w[0], "paneldraw")) {
             cx_panel_draw = parse_dec(w[1]) == 1;
         } else if (nw == 2 && same(w[0], "textlog")) {

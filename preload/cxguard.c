@@ -59,6 +59,7 @@ static void cx_init(void)
         cxtext_start();
         cxmenu_start();
         cxtouch_start();
+        cxpanel_start();
 #ifdef CX_UX
         cxux_start();
 #endif

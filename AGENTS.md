@@ -89,13 +89,20 @@ La documentación del proyecto va en español, dentro de `docs/`.
   06:51 está otra vez la v19 normal con `cxmode-v18d.txt`. Los clips de `captures/prueba-v18/` coinciden con la
   bitácora; `tools/cxexposure.py` corrige la obturación de los AVCHD (ExifTool
   la da con divisor de 50 Hz).
-- **Panel propio (v24)**: es lo instalado desde el 2026-11-27 08:08
-  (`preload/release/cxg-v24.so`, md5 `35cf3cc5…`, con `cxmode-v24p.txt`). En la
-  pantalla de grabación de video muestra iris, obturación y ganancia y se
-  ajustan tocando, sin entrar al menú; oculta los botones W, T y grabar y los
-  indicadores nativos que repetían lo mismo. Visto por el dueño (foto) y sin
-  órdenes rechazadas en las bitácoras. Falta comprobar con un clip que lo
-  grabado coincide con el panel. Detalle en `docs/panel-propio.md`.
+- **Panel propio (v30)**: es lo instalado desde el 2026-11-27 09:33
+  (`preload/release/cxg-v30.so`, md5 `3790c9d2…`, con `cxmode-v28p.txt`). En la
+  pantalla de grabación de video muestra balance de blancos, iris, obturación y
+  ganancia, cada uno con su automático (botón AUTO), y se ajustan tocando, sin
+  entrar al menú. El balance pasa por AWB, sol, interior y One Push; con One
+  Push el botón dice SET y toma el blanco de la carta gris. De lo nativo sólo
+  deja MENU, el medidor de audio y el indicador rojo de REC. Confirmado por el
+  dueño; sin órdenes del panel rechazadas en las bitácoras. Falta comprobar con
+  un clip que lo grabado coincide con el panel, y si el One Push tomado desde
+  el panel sobrevive al apagado. Si la interfaz reenvía sus ajustes (cambio de
+  Audio Mode, quizá HD/STD), la exposición vuelve a automático; y si se elige
+  una opción en un menú que cierra todo de golpe, el panel queda oculto hasta
+  abrir y cerrar MENU. A `cxg.so` le quedan 1 084 bytes antes del tope de tres
+  bloques. Detalle en `docs/panel-propio.md`.
 - Pruebas de la biblioteca en QEMU con el cargador de la cámara y emulando su
   procesador (`-cpu arm11mpcore`): `preload/test/run.sh`. Compilador:
   contenedor `cx580-toolchain` (`toolchain/Containerfile`).

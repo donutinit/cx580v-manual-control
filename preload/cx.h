@@ -98,11 +98,14 @@ void cxux_touch(const char *kind, u32 mouse, u32 button, int x, int y);
 /* cxtouch.c: envolturas del tacto. */
 void cxtouch_start(void);
 /* cxpanel.c: panel propio en la pantalla de grabación. */
-extern int cx_panel, cx_panel_draw, cx_panel_dump;
-extern int cx_panel_rect[5][4];                     /* x, y, ancho, alto de cada zona */
+extern int cx_panel, cx_panel_draw, cx_panel_dump, cx_panel_wb;
+extern int cx_panel_rect[7][4];                     /* x, y, ancho, alto de cada zona */
+void cxpanel_start(void);
 extern u32 cx_panel_font[5];
 void cxpanel_hidebox(int x, int y, int w, int h);   /* oculta lo nativo que quepa en la caja */
 void cxpanel_hideid(u32 id);                        /* oculta el widget nativo con ese ID */
+void cxpanel_hidevt(u32 vt);                        /* oculta los widgets nativos de esa clase */
+void cxpanel_keepbox(int x, int y, int w, int h);   /* con alguna, sólo queda lo que toca una de estas cajas */
 void cxpanel_native(u32 widget);                    /* un widget nativo que la interfaz acaba de tocar */
 void cxpanel_view(const char *name, int opening);   /* tras la openView/closeView original */
 void cxpanel_hook(int h);                           /* desde cualquier envoltura; h: quién llama */
@@ -114,6 +117,9 @@ void cxobj_panel_manual(int k);
 void cxobj_panel_auto(int k);
 void cxobj_panel_step(int k, int dir);
 void cxobj_panel_gain(int idx);
+u32 cxobj_panel_wb_get(void);                       /* VALUEID_WB_* pedido */
+void cxobj_panel_wb(u32 mode);
+void cxobj_panel_onepush(void);                     /* fija el blanco con la carta gris */
 extern int cx_textlog;
 
 /* Configuración de cxmode.txt que usa cxobj.c (la lee cxview.c). */
@@ -122,9 +128,7 @@ extern int cx_objmanual;
 extern volatile int cx_manual_active;
 extern int cx_holdmanual;
 extern int cx_gainshift;
-extern int cx_isoshift;
 extern int cx_expogain;
-extern int cx_unlockiso;
 extern int cx_autounlock;
 extern int cx_gainlock;
 /* cxobj.c: qué está manual de verdad en la cámara (con holdmanual). */

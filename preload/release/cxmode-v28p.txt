@@ -1,0 +1,61 @@
+show c347c 12
+show c347c 13
+show c347c 15
+show c347c 16
+aeauto 6
+holdmanual 1
+gainshift 1
+gainlock 4
+label 2310 26f0
+label 2311 26f0
+label 2312 26f3
+label 2313 26f3
+label 2314 26f2
+label 2315 26f3
+image 23 187
+image 22 189
+image 21 18b
+image 20 18d
+image 24 18f
+image 1c 191
+image 1d 193
+image 1e 195
+image 1f 197
+image 25 19b
+hide c347c 23
+hide c347c 25
+hide c347c 26
+hide c347c 31
+hide c347c 32
+hide c347c 33
+hide c347c 34
+hide c347c 42
+hide c347c 43
+hide c347c 53
+hide c347c 69
+hide bb980 21
+hide bb980 22
+hide bb980 42
+hide bb980 51
+hide bb980 55
+hide bb980 74
+hide bb980 75
+hide b7220 10
+hide b7220 11
+autounlock 1
+image c8 188
+image c7 18a
+image c6 18c
+image c5 18e
+image c9 190
+image c1 192
+image c2 194
+image c3 196
+image c4 198
+image ca 19c
+panel 2
+keepbox 4 4 60 60
+keepbox 250 14 100 28
+keepbox 450 432 100 20
+hidevt 11d1444
+panelwb 1

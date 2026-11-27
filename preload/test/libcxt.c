@@ -238,6 +238,13 @@ void t_w_passive(u32 self, u32 on) { int i = lab_of(self); if (i >= 0) cxt_lab[i
 __attribute__((target("thumb"), noinline))
 u32 t_ts_draw(u32 sprite) __asm__("_ZN2ux6gfxeng10TextSprite8drawTextEv");
 u32 t_ts_draw(u32 sprite) { (void)sprite; cxt_drawn++; return 0; }
+/* ViewBase::ViewBase(ViewManager*) y ~ViewBase() falsos: cuentan y dejan pasar. */
+u32 cxt_views[4];   /* {nacidas, muertas, último this, último ViewManager} */
+u32 t_vb_ctor(u32 self, u32 mgr) __asm__("_ZN8ViewBaseC2EP11ViewManager");
+u32 t_vb_ctor(u32 self, u32 mgr) { cxt_views[0]++; cxt_views[2] = self; cxt_views[3] = mgr; return self; }
+u32 t_vb_dtor(u32 self) __asm__("_ZN8ViewBaseD2Ev");
+u32 t_vb_dtor(u32 self) { cxt_views[1]++; cxt_views[2] = self; return self; }
+
 /* GraphicsEngine::updateResource() falso. */
 u32 cxt_updres;
 __attribute__((target("thumb"), noinline))
