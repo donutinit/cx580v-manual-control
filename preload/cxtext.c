@@ -35,7 +35,7 @@
 #define TEXT_NS     0x0204u          /* bits 16..25 del número */
 #define IMAGE_NS    0x0220u
 #define NLABEL      24
-#define NIMAGE      16
+#define NIMAGE      24
 #define MAX_TEXTLOG 150
 
 struct rule { u32 from, to; int logged; };
@@ -133,6 +133,8 @@ void cxw_setstr(u32 self, u32 id)
 {
     struct line l;
     int i;
+    cxpanel_hook(3);
+    cxpanel_native(self - 0x144);    /* el sprite está en GEN_Label + 0x144 */
     resolve();
 #ifdef CX_UX
     cxux_note_label(self, id);
@@ -164,6 +166,7 @@ void cxw_setimage(u32 self, u32 id, u32 flag) __asm__(SYM_SETIMAGE);
 void cxw_setimage(u32 self, u32 id, u32 flag)
 {
     resolve();
+    cxpanel_native(self);            /* un GEN_Icon de la pantalla */
     if (r_setimage) ((void (*)(u32, u32, u32))r_setimage)(self, apply(img, nimg, IMAGE_NS, id, "TI", " icon "), flag);
 }
 

@@ -294,7 +294,10 @@ static u32 *find_param(u32 msg, u32 pid)
  */
 struct iparam { u32 id, type, value; };   /* type: 7 int, 8 uint, 3 signed char */
 
-static u32 inject_n(u32 obj, u32 mid, const struct iparam *p, int n)
+u32 cxw_async(u32 obj, u32 msg) __asm__(SYM_ASYNC);
+
+/* via_ui: la orden pasa por cxw_async, como si la hubiera pedido la interfaz. */
+static u32 inject_x(u32 obj, u32 mid, const struct iparam *p, int n, int via_ui)
 {
     static u32 seq = 0xcc000000u;
     u32 msg[4] __attribute__((aligned(8)));
@@ -319,15 +322,19 @@ static u32 inject_n(u32 obj, u32 mid, const struct iparam *p, int n)
         head(&l, "IN", obj, CAT_CAMERA, mid, (u32)msg);
         walk((u32)msg, &l);
     }
-    n_rej = 0;
-    our_call = 1;
-    r = ((fn2_t)r_async)(obj, (u32)msg);
-    our_call = 0;
-    if (r == V_INHIBITED && cx_autounlock && learn_unlock()) {
+    if (via_ui) {
+        r = cxw_async(obj, (u32)msg);
+    } else {
         n_rej = 0;
         our_call = 1;
         r = ((fn2_t)r_async)(obj, (u32)msg);
         our_call = 0;
+        if (r == V_INHIBITED && cx_autounlock && learn_unlock()) {
+            n_rej = 0;
+            our_call = 1;
+            r = ((fn2_t)r_async)(obj, (u32)msg);
+            our_call = 0;
+        }
     }
     if (cx_log_enabled()) {
         cxl_lit(&l, " ret=");
@@ -336,6 +343,11 @@ static u32 inject_n(u32 obj, u32 mid, const struct iparam *p, int n)
     }
     ((void (*)(u32))mwf[F_MSG_DTOR])((u32)msg);
     return r;
+}
+
+static u32 inject_n(u32 obj, u32 mid, const struct iparam *p, int n)
+{
+    return inject_x(obj, mid, p, n, 0);
 }
 
 static u32 inject(u32 obj, u32 mid, u32 pid, u32 value)
@@ -423,6 +435,11 @@ static u32 drive_sync(u32 obj, u32 mid, u32 pid, int step)
  * que la cámara reporte el mismo.
  */
 static volatile u32 v_fno, v_fno_min, v_sn, v_sd, v_seq[2];
+/* Panel propio: ganancia avisada (dB, -99 si no se sabe), tope pedido (índice, -1
+ * automático), contador de cambios y pasos dados fuera de la prioridad. */
+static volatile int v_gain = -99, p_gain = -1;
+static volatile u32 v_any;
+static volatile int xpend[2];
 static u32 t_fno, t_fno_min, t_sn, t_sd;
 static volatile int t_ok[2];
 struct fixer { int active, sign_known, stalls, steps, last; u32 t0, ts, seq, prev_a, prev_b; };
@@ -490,6 +507,14 @@ static void note_value(u32 id, u32 v)
     else v_sd = v;
     if (k < 0) return;
     v_seq[k]++;
+    v_any++;
+    /* Paso del panel fuera de la prioridad de ese control: lo que llega es el objetivo. */
+    if (xpend[k] && (k == 0 || v_sd)) {
+        xpend[k] = 0;
+        if (k == 0) { t_fno = v_fno; t_fno_min = v_fno_min; }
+        else { t_sn = v_sn; t_sd = v_sd; }
+        t_ok[k] = 1;
+    }
     /* En su propia prioridad y sin corregir, el valor de la cámara es el objetivo. */
     if (cx_holdmanual && !fx[k].active) {
         if (k == 0 && camera_mode == V_EXP_MODE_IRIS && cx_iris_held) { t_fno = v_fno; t_fno_min = v_fno_min; t_ok[0] = 1; }
@@ -585,6 +610,10 @@ static void note_iso(u32 msg, u32 id, u32 p)
     int k = id == P_ISO_GAIN_STATUS ? 0 : id == P_ISO_GAIN_VALID ? 1 : id == P_ISO_SPEED_RATE ? 2 :
             id == P_ISO_SPEED_RATE_ACT ? 3 : 4;
     if (t && !((u32)t & 3)) ty = t[0];
+    if (id == P_ISO_GAIN_STATUS) {   /* VALUEID_DB_*: 0x1e6 = -6 dB, de 3 en 3 */
+        int g = (v >= 0x1e6 && v <= 0x1f2) ? ((int)v - 0x1e8) * 3 : -99;
+        if (g != v_gain) { v_gain = g; v_any++; }
+    }
     if (!cx_log_enabled() || n >= 200 || (last[k] == v + 1)) return;
     last[k] = v + 1;
     n++;
@@ -629,6 +658,8 @@ u32 cxw_getparam(u32 msg, u32 id)
         const u32 *t = (const u32 *)((const u32 *)p)[1];
         if (t && !((u32)t & 3) && t[0] == 6) note_value(id, ((const u32 *)p)[0] & 0xffff);
     }
+    /* El último parámetro de cada aviso: el panel ya puede mostrar el valor nuevo. */
+    if (id == P_FNO_CUR_MIN || id == P_SHUT_DENOM || id == P_ISO_GAIN_STATUS) cxpanel_hook(0);
     return p;
 }
 
@@ -947,6 +978,86 @@ void cxobj_drive(int iris, int manual)
         inject(camera_obj, MSG_SET_IRIS_DRIVE_MODE, P_IRIS_DRIVE_MODE, manual ? V_IRIS_MANUAL : V_IRIS_AUTO);
     else
         inject(camera_obj, MSG_SET_SHUT_DRIVE_MODE, P_SHUT_DRIVE_MODE, manual ? V_SHUT_MANUAL : V_SHUT_AUTO);
+}
+
+/* --- motor del panel propio (cxpanel.c) --------------------------------- */
+#define P_EXPOSURE_BIAS_STEP 0x9653
+#define V_EXPOSURE_BIAS_STEP 0x196   /* el que manda la interfaz */
+#define V_EXP_MODE_AUTO_2    0xf7
+
+static u32 prio(int k) { return k == 0 ? V_EXP_MODE_IRIS : V_EXP_MODE_SHUTTER; }
+static int held(int k) { return k == 0 ? cx_iris_held : cx_shutter_held; }
+
+/* La prioridad se pide por cxw_async: así corre la misma lógica que con las
+ * pantallas de fábrica (AE lock, fijar el otro control, corrección). */
+static void ui_mode(u32 mode)
+{
+    struct iparam p;
+    p.id = P_EXPOSURE_MODE; p.type = 7; p.value = mode;
+    inject_x(camera_obj, MSG_SET_EXPOSURE_MODE, &p, 1, 1);
+}
+
+int cxobj_panel_ready(void) { resolve(); return camera_obj != 0 && r_async && r_sync; }
+
+u32 cxobj_panel_get(u32 *fno, u32 *sn, u32 *sd, int *gain_db, int *gain_idx)
+{
+    *fno = v_fno; *sn = v_sn; *sd = v_sd; *gain_db = v_gain; *gain_idx = p_gain;
+    return v_any;
+}
+
+/* El control k (0 iris, 1 obturación) queda manual en el valor que tiene ahora. */
+void cxobj_panel_manual(int k)
+{
+    if (!cxobj_panel_ready() || held(k)) return;
+    if (!held(1 - k)) { ui_mode(prio(k)); v_any++; return; }
+    /* El otro ya es manual y tiene la prioridad: éste se fija sin cambiarla. */
+    cxobj_drive(k == 0, 1);
+    if (k == 0) { cx_iris_held = 1; t_fno = v_fno; t_fno_min = v_fno_min; t_ok[0] = v_fno != 0; }
+    else { cx_shutter_held = 1; t_sn = v_sn; t_sd = v_sd; t_ok[1] = v_sd != 0; }
+    v_any++;
+}
+
+void cxobj_panel_auto(int k)
+{
+    if (!cxobj_panel_ready() || !held(k)) return;
+    xpend[k] = 0;
+    v_any++;
+    if (!held(1 - k)) { ui_mode(V_EXP_MODE_AUTO_2); return; }
+    t_ok[k] = 0;
+    fx[k].active = 0;
+    if (k == 0) cx_iris_held = 0; else cx_shutter_held = 0;
+    if (camera_mode == prio(k)) ui_mode(prio(1 - k));   /* la prioridad pasa al otro, que sigue manual */
+    else cxobj_drive(k == 0, 0);
+}
+
+/* Un paso (dir = +1: más F, obturación más rápida). El primero sobre un control
+ * en automático sólo lo fija donde está, como en las pantallas de fábrica. */
+void cxobj_panel_step(int k, int dir)
+{
+    if (!cxobj_panel_ready()) return;
+    if (!held(k)) { cxobj_panel_manual(k); return; }
+    fx[k].active = 0;
+    if (camera_mode != prio(k)) xpend[k] = 1;
+    step_sync(camera_obj, k == 0, dir);
+}
+
+/* Ganancia: idx -1 automática; 0..8 tope fijo de idx*3 dB (el mecanismo de gainlock). */
+void cxobj_panel_gain(int idx)
+{
+    struct iparam p[3];
+    if (!cxobj_panel_ready()) return;
+    if (idx > 8) idx = 8;
+    p_gain = idx;
+    v_any++;
+    p[0].id = P_EXPOSURE_BIAS_SW;   p[0].type = 7; p[0].value = idx >= 0 ? V_EXPOSURE_BIAS_ON : V_EXPOSURE_BIAS_OFF;
+    p[1].id = P_EXPOSURE_BIAS;      p[1].type = 3; p[1].value = idx >= 0 ? (u32)(cx_gainlock ? cx_gainlock : 4) : 0;
+    p[2].id = P_EXPOSURE_BIAS_STEP; p[2].type = 7; p[2].value = V_EXPOSURE_BIAS_STEP;
+    inject_n(camera_obj, MSG_SET_EXPOSURE_BIAS, p, 3);
+    lock_on = idx >= 0;
+    lock_k = idx >= 0 ? idx - 4 : 0;
+    p[0].id = P_AGC_LIMIT;      p[0].type = 3; p[0].value = idx >= 0 ? (u32)(idx * 3) : 0;
+    p[1].id = P_AGC_LIMIT_MODE; p[1].type = 8; p[1].value = idx >= 0 ? V_AGC_LIMIT_ON : V_AGC_LIMIT_OFF;
+    inject_n(camera_obj, MSG_SET_AGC_LIMIT, p, 2);
 }
 
 void cxobj_start(void)

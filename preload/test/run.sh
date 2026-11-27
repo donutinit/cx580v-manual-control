@@ -55,8 +55,8 @@ und=$(podman run --rm -v "$PRELOAD:/src:Z" cx580-toolchain arm-linux-gnueabi-rea
 [ "$und" -eq 0 ] || fail "cxg.so importa $und símbolos"; ok "cxg.so no importa símbolos"
 und=$(podman run --rm -v "$PRELOAD:/src:Z" cx580-toolchain arm-linux-gnueabi-readelf -Ws --dyn-syms cxg-ux.so | awk '$7=="UND" && $8!=""' | wc -l)
 [ "$und" -eq 0 ] || fail "cxg-ux.so importa $und símbolos"; ok "cxg-ux.so no importa símbolos"
-podman run --rm -v "$PRELOAD:/src:Z" cx580-toolchain arm-linux-gnueabi-readelf -Ws --dyn-syms cxg.so | grep -q 'postMouse\|EventManager' && fail "cxg.so no debe llevar las envolturas de tacto"
-ok "cxg.so no lleva las envolturas de tacto y botones"
+podman run --rm -v "$PRELOAD:/src:Z" cx580-toolchain arm-linux-gnueabi-readelf -Ws --dyn-syms cxg.so | grep -q 'EventManager\|updateResource' && fail "cxg.so no debe llevar las envolturas de botones ni de updateResource"
+ok "cxg.so lleva las envolturas del tacto y no las de botones"
 
 for b in bin/busybox usr/bin/bootin.elf usr/bin/im.elf; do
     set +e; q -E LD_PRELOAD=/setting/cxg.so "$SYSROOT/$b" >/dev/null 2>&1; a=$?
@@ -289,5 +289,23 @@ rm -f "$T/cxmode.txt"; rm -f "$T/cxreq.log"
 out=$(q -E LD_PRELOAD=/setting/cxg-test.so "$SYSROOT/usr/bin/cxtest" nomenu 2>&1) || fail "cxtest nomenu falló: $out"
 echo "$out" | grep -q "menu TODO OK" || fail "sin reglas el menú no debe cambiar"
 ok "show/hide: el estado de los ítems del menú se corrige dentro de initMenuData, sólo en la tabla conocida"
+
+printf 'panel 2\nhidebox 560 120 80 360\nhidew 1d0001\npaneldump 1\n' > "$T/cxmode.txt"; rm -f "$T/cxreq.log"
+out=$(q -E LD_PRELOAD=/setting/cxg-test.so "$SYSROOT/usr/bin/cxtest" panel 2>&1) || fail "cxtest panel falló: $out"
+echo "$out" | grep "cxtest:"
+echo "$out" | grep -q "panel TODO OK" || fail "panel"
+grep ' PN ' "$T/cxreq.log" | head -14
+grep -q 'PN creado' "$T/cxreq.log" || fail "la creación del panel no quedó anotada"
+grep ' PW ' "$T/cxreq.log" | head -6
+grep -q 'PW 2 .* m=3 253,9b 28x46 id=1c0001' "$T/cxreq.log" || fail "el árbol de widgets no quedó anotado con posiciones absolutas"
+rm -f "$T/cxreq.log"
+out=$(q -E LD_PRELOAD=/setting/cxg-test.so "$SYSROOT/usr/bin/cxtest" panelroot 2>&1) || fail "cxtest panelroot falló: $out"
+echo "$out" | grep -q "panel TODO OK" || { echo "$out" | grep "cxtest:"; fail "panel, entrando por la raíz de la capa"; }
+grep -q 'PW 2 .* m=3 253,9b 28x46 id=1c0001' "$T/cxreq.log" || fail "el árbol no quedó anotado entrando por la raíz"
+rm -f "$T/cxmode.txt"; rm -f "$T/cxreq.log"
+out=$(q -E LD_PRELOAD=/setting/cxg-test.so "$SYSROOT/usr/bin/cxtest" nopanel 2>&1) || fail "cxtest nopanel falló: $out"
+echo "$out" | grep "cxtest:"
+echo "$out" | grep -q "panel TODO OK" || fail "sin panel todo debe pasar igual"
+ok "panel: lecturas propias en la pantalla de grabación, tacto, automático por control y ocultado con los menús"
 
 echo "TODO OK"

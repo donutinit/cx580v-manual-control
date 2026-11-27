@@ -4,7 +4,7 @@
  *
  * Detalle del análisis en docs/research/ux-panel-propio.md. En resumen:
  *  - El tacto llega al framework ux por WidgetSystem::postMouseMove/Press/
- *    Release, llamadas por la PLT desde InputService en el hilo de la interfaz.
+ *    Release; esas envolturas están en cxtouch.c, que avisa aquí (cxux_touch).
  *  - Los botones físicos llegan como eventos de la aplicación por
  *    EventManager::push(Event*), desde hilos de Infra; el número de evento está
  *    en ev+4 (0x1502xxxx teclas, 0x150bxxxx palancas, 0x1503xxxx diales).
@@ -23,9 +23,6 @@
 #ifndef CX_UX_LIB
 #define CX_UX_LIB "/libObj.so"
 #endif
-#define SYM_MMOVE  "_ZN2ux6wgtsys12WidgetSystem13postMouseMoveEhssNS_4core8MsecTimeE"
-#define SYM_MPRESS "_ZN2ux6wgtsys12WidgetSystem14postMousePressEhhNS_4core8MsecTimeE"
-#define SYM_MREL   "_ZN2ux6wgtsys12WidgetSystem16postMouseReleaseEhhNS_4core8MsecTimeE"
 #define SYM_EVPUSH "_ZN12EventManager4pushEP5Event"
 
 #define MAX_TOUCH 60
@@ -33,10 +30,11 @@
 #define MAX_FONTS 12
 #define RING      64          /* potencia de 2 */
 
+#define SYM_UPDRES "_ZN2ux6gfxeng14GraphicsEngine14updateResourceEv"
+
 int cx_uxlog;
-static u32 r_move, r_press, r_rel, r_push;
+static u32 r_push, r_updres;
 static volatile int resolving;
-static volatile int last_x, last_y;
 static int n_touch, n_keys, n_fonts;
 static volatile u32 ring[RING];
 static volatile u32 ring_w;
@@ -49,14 +47,12 @@ static void resolve(void)
 {
     static int tries;
     u32 base;
-    if ((r_move && r_press && r_rel && r_push) || tries >= 3) return;
+    if ((r_push && r_updres) || tries >= 3) return;
     if (__sync_lock_test_and_set(&resolving, 1)) return;   /* cx_lib_base usa un búfer estático */
     tries++;
     base = cx_lib_base(CX_UX_LIB);
-    r_move = cx_dlsym(base, SYM_MMOVE);
-    r_press = cx_dlsym(base, SYM_MPRESS);
-    r_rel = cx_dlsym(base, SYM_MREL);
     r_push = cx_dlsym(base, SYM_EVPUSH);
+    r_updres = cx_dlsym(base, SYM_UPDRES);
     __sync_lock_release(&resolving);
 }
 
@@ -76,7 +72,8 @@ void cxux_flush(void)
     }
 }
 
-static void touch(const char *kind, u32 mouse, u32 button)
+/* Lo llama cxtouch.c en cada apoyar (MP) y soltar (MR). */
+void cxux_touch(const char *kind, u32 mouse, u32 button, int x, int y)
 {
     struct line l;
     if (!cx_uxlog || !cx_log_enabled() || n_touch >= MAX_TOUCH) return;
@@ -87,41 +84,24 @@ static void touch(const char *kind, u32 mouse, u32 button)
     cxl_lit(&l, " button=");
     cxl_hex(&l, button & 0xff);
     cxl_lit(&l, " x=");
-    cxl_hex(&l, (u32)last_x);
+    cxl_hex(&l, (u32)x);
     cxl_lit(&l, " y=");
-    cxl_hex(&l, (u32)last_y);
+    cxl_hex(&l, (u32)y);
     cxl_lit(&l, " tid=");
     cxl_hex(&l, tid());
     cxl_end(&l);
 }
 
+/*
+ * GraphicsEngine::updateResource(): candidata a reloj del hilo de la interfaz.
+ * Sólo se cuenta (cxpanel_hook) para saber cada cuánto y en qué hilo corre.
+ */
 __attribute__((used, visibility("hidden")))
-u32 cxux_note_move(u32 ws, u32 mouse, u32 x, u32 y)
+u32 cxux_note_updres(void)
 {
-    (void)ws; (void)mouse;
-    resolve();
-    last_x = (short)x;
-    last_y = (short)y;
-    if (cx_uxlog && cx_log_enabled()) cxux_flush();
-    return r_move ? r_move : (u32)nothing;
-}
-
-__attribute__((used, visibility("hidden")))
-u32 cxux_note_press(u32 ws, u32 mouse, u32 button, u32 t)
-{
-    (void)ws; (void)t;
-    resolve();
-    touch("MP", mouse, button);
-    return r_press ? r_press : (u32)nothing;
-}
-
-__attribute__((used, visibility("hidden")))
-u32 cxux_note_release(u32 ws, u32 mouse, u32 button, u32 t)
-{
-    (void)ws; (void)t;
-    resolve();
-    touch("MR", mouse, button);
-    return r_rel ? r_rel : (u32)nothing;
+    if (!r_updres) resolve();
+    cxpanel_hook(5);
+    return r_updres ? r_updres : (u32)nothing;
 }
 
 /* Corre en el hilo de quien manda el evento: sólo guarda el número. */
@@ -149,10 +129,8 @@ u32 cxux_note_push(u32 self, u32 ev)
     "    bx r12\n" \
     ".size " sym ", .-" sym "\n")
 
-TRAMPOLINE(SYM_MMOVE, "cxux_note_move");
-TRAMPOLINE(SYM_MPRESS, "cxux_note_press");
-TRAMPOLINE(SYM_MREL, "cxux_note_release");
 TRAMPOLINE(SYM_EVPUSH, "cxux_note_push");
+TRAMPOLINE(SYM_UPDRES, "cxux_note_updres");
 
 /*
  * Fuente de las etiquetas de fábrica: seis palabras en GEN_Label + 0x264. El

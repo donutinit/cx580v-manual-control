@@ -71,6 +71,7 @@ void cxl_lit(struct line *l, const char *s);
 void cxl_hex(struct line *l, u32 v);
 void cxl_end(struct line *l);
 int cx_log_enabled(void);
+void cx_log_sync(void);
 void cx_log_start(void);
 
 /* Module entry points, called from the constructor in cxguard.c. */
@@ -92,7 +93,27 @@ extern int cx_uxlog;
 void cxux_start(void);
 void cxux_flush(void);
 void cxux_note_label(u32 sprite, u32 id);
+void cxux_touch(const char *kind, u32 mouse, u32 button, int x, int y);
 #endif
+/* cxtouch.c: envolturas del tacto. */
+void cxtouch_start(void);
+/* cxpanel.c: panel propio en la pantalla de grabación. */
+extern int cx_panel, cx_panel_draw, cx_panel_dump;
+extern int cx_panel_rect[5][4];                     /* x, y, ancho, alto de cada zona */
+extern u32 cx_panel_font[5];
+void cxpanel_hidebox(int x, int y, int w, int h);   /* oculta lo nativo que quepa en la caja */
+void cxpanel_hideid(u32 id);                        /* oculta el widget nativo con ese ID */
+void cxpanel_native(u32 widget);                    /* un widget nativo que la interfaz acaba de tocar */
+void cxpanel_view(const char *name, int opening);   /* tras la openView/closeView original */
+void cxpanel_hook(int h);                           /* desde cualquier envoltura; h: quién llama */
+int cxpanel_press(int x, int y);                    /* 1: el toque es del panel */
+/* cxobj.c: motor del panel. k: 0 iris, 1 obturación. */
+int cxobj_panel_ready(void);
+u32 cxobj_panel_get(u32 *fno, u32 *sn, u32 *sd, int *gain_db, int *gain_idx);
+void cxobj_panel_manual(int k);
+void cxobj_panel_auto(int k);
+void cxobj_panel_step(int k, int dir);
+void cxobj_panel_gain(int idx);
 extern int cx_textlog;
 
 /* Configuración de cxmode.txt que usa cxobj.c (la lee cxview.c). */

@@ -58,6 +58,7 @@ static void cx_init(void)
         cxobj_start();
         cxtext_start();
         cxmenu_start();
+        cxtouch_start();
 #ifdef CX_UX
         cxux_start();
 #endif

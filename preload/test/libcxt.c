@@ -147,12 +147,116 @@ u32 cxt_image[4];   /* {self, id, flag, cuenta} */
 void t_setimage(u32 self, u32 id, u32 flag) __asm__("_ZN8GEN_Icon8setImageEjb");
 void t_setimage(u32 self, u32 id, u32 flag) { cxt_image[0] = self; cxt_image[1] = id; cxt_image[2] = flag; cxt_image[3]++; }
 
+/*
+ * GEN_Label y Widget falsos para el panel propio (cxpanel.c). Cada etiqueta que
+ * se construye queda en la lista: {this, capa, ancho, alto, x, y, modo, pasiva,
+ * veces al frente, textos puestos}. ARM o Thumb como en la cámara.
+ */
+#define CXT_NLAB 8
+u32 cxt_lab[CXT_NLAB][10];
+u32 cxt_labfont[CXT_NLAB][5];
+char cxt_labtext[CXT_NLAB][20];
+u32 cxt_nlab, cxt_sibling, cxt_drawn;
+static int lab_of(u32 w)
+{
+    u32 i;
+    for (i = 0; i < cxt_nlab; i++) if (cxt_lab[i][0] == w) return (int)i;
+    return -1;
+}
+void t_lab_ctor(u32 self) __asm__("_ZN9GEN_LabelC1Ev");
+/* Con cxt_rootpath, la etiqueta queda colgada de la raíz como en el framework:
+ * +8 apunta al nodo del padre, y ese nodo (+0) a su widget dueño. */
+u32 cxt_rootpath, cxt_rootnode[2];
+void t_lab_ctor(u32 self)
+{
+    if (cxt_nlab < CXT_NLAB) cxt_lab[cxt_nlab++][0] = self;
+    if (cxt_rootpath) ((u32 *)self)[2] = (u32)cxt_rootnode;
+}
+void t_lab_size(u32 self, u32 w, u32 h) __asm__("_ZN9GEN_Label7setSizeEN2ux4core7Fixed32ES2_");
+void t_lab_size(u32 self, u32 w, u32 h) { int i = lab_of(self); if (i >= 0) { cxt_lab[i][2] = w; cxt_lab[i][3] = h; } }
+#define LABFONT(name, sym, k) void name(u32 self, u32 v) __asm__(sym); \
+    void name(u32 self, u32 v) { int i = lab_of(self); if (i >= 0) cxt_labfont[i][k] = v; }
+LABFONT(t_lab_font, "_ZN9GEN_Label7setFontEj", 0)
+LABFONT(t_lab_fsize, "_ZN9GEN_Label11setFontSizeEj", 1)
+LABFONT(t_lab_fstyle, "_ZN9GEN_Label12setFontStyleEj", 2)
+LABFONT(t_lab_halign, "_ZN9GEN_Label18setHorizontalAlignEj", 3)
+LABFONT(t_lab_dir, "_ZN9GEN_Label16setDirectionTypeEj", 4)
+__attribute__((target("thumb"), noinline))
+u32 t_genid(const char *s) __asm__("_ZN2ux4core2ID5genIDEPKc");
+u32 t_genid(const char *s) { return s[0] == 'A' && s[1] == '_' && s[2] == 'P' ? 0xa11a : 0xbad; }
+__attribute__((target("thumb"), noinline))
+void t_w_layer(u32 self, const u32 *id) __asm__("_ZN2ux6wgtsys6Widget10setLayerIDERKNS_4core2IDE");
+void t_w_layer(u32 self, const u32 *id) { int i = lab_of(self); if (i >= 0) cxt_lab[i][1] = *id; }
+__attribute__((target("thumb"), noinline))
+void t_w_pos(u32 self, const u32 *xy) __asm__("_ZN2ux6wgtsys6Widget11setLocalPosERKNS_4core7Vector2E");
+void t_w_pos(u32 self, const u32 *xy) { int i = lab_of(self); if (i >= 0) { cxt_lab[i][4] = xy[0]; cxt_lab[i][5] = xy[1]; } }
+__attribute__((target("thumb"), noinline))
+void t_w_last(u32 self) __asm__("_ZN2ux6wgtsys6Widget8moveLastEv");
+void t_w_last(u32 self) { int i = lab_of(self); if (i >= 0) cxt_lab[i][8]++; }
+/* Árbol falso que arma la prueba: {raíz, vista, botón, icono (hijo del botón), indicador, medidor}. */
+u32 cxt_tree[6];
+__attribute__((target("thumb"), noinline))
+u32 t_w_next(u32 self) __asm__("_ZNK2ux6wgtsys6Widget14getNextSiblingEv");
+u32 t_w_next(u32 self)
+{
+    if (lab_of(self) >= 0) return cxt_sibling;
+    if (self && self == cxt_tree[2]) return cxt_tree[4];
+    if (self && self == cxt_tree[4]) return cxt_tree[5];
+    return 0;
+}
+__attribute__((target("thumb"), noinline))
+u32 t_w_parent(u32 self) __asm__("_ZNK2ux6wgtsys6Widget9getParentEv");
+u32 t_w_parent(u32 self)
+{
+    /* Como en la cámara: un hijo directo de la raíz (las etiquetas, la vista) «no tiene padre». */
+    if (!self || lab_of(self) >= 0) return 0;
+    if (self == cxt_tree[3]) return cxt_tree[2];
+    if (self == cxt_tree[2] || self == cxt_tree[4] || self == cxt_tree[5]) return cxt_tree[1];
+    return 0;
+}
+__attribute__((target("thumb"), noinline))
+u32 t_w_child(u32 self) __asm__("_ZNK2ux6wgtsys6Widget13getFirstChildEv");
+u32 t_w_child(u32 self)
+{
+    if (!self) return 0;
+    if (self == cxt_tree[0]) return cxt_tree[1];
+    if (self == cxt_tree[1]) return cxt_tree[2];
+    if (self == cxt_tree[2]) return cxt_tree[3];
+    return 0;
+}
+__attribute__((target("thumb"), noinline))
+void t_w_mode(u32 self, u32 mode) __asm__("_ZN2ux6wgtsys6Widget7setModeENS1_10WidgetModeE");
+void t_w_mode(u32 self, u32 mode)
+{
+    int i = lab_of(self);
+    if (i >= 0) cxt_lab[i][6] = mode;
+    else ((unsigned char *)self)[0x19] = (unsigned char)mode;
+}
+__attribute__((target("thumb"), noinline))
+void t_w_passive(u32 self, u32 on) __asm__("_ZN2ux6wgtsys6Widget16setPassiveRegionEb");
+void t_w_passive(u32 self, u32 on) { int i = lab_of(self); if (i >= 0) cxt_lab[i][7] = on; }
+__attribute__((target("thumb"), noinline))
+u32 t_ts_draw(u32 sprite) __asm__("_ZN2ux6gfxeng10TextSprite8drawTextEv");
+u32 t_ts_draw(u32 sprite) { (void)sprite; cxt_drawn++; return 0; }
+/* GraphicsEngine::updateResource() falso. */
+u32 cxt_updres;
+__attribute__((target("thumb"), noinline))
+u32 t_updres(u32 self) __asm__("_ZN2ux6gfxeng14GraphicsEngine14updateResourceEv");
+u32 t_updres(u32 self) { cxt_updres++; return self + 7; }
+
 /* TextSprite::setString(char const*) falso (Thumb, como en la cámara). */
 u32 cxt_textc[3];   /* {self, primeros 4 bytes del texto, cuenta} */
 __attribute__((target("thumb"), noinline))
 void t_setstr_c(u32 self, const char *s) __asm__("_ZN2ux6gfxeng10TextSprite9setStringEPKc");
 void t_setstr_c(u32 self, const char *s)
 {
+    int lab = lab_of(self - 0x144), k;
+    if (lab >= 0) {                 /* etiqueta del panel: se guarda el texto entero */
+        for (k = 0; k < 19 && s[k]; k++) cxt_labtext[lab][k] = s[k];
+        cxt_labtext[lab][k] = 0;
+        cxt_lab[lab][9]++;
+        return;
+    }
     cxt_textc[0] = self;
     cxt_textc[1] = (u32)(unsigned char)s[0] | (u32)(unsigned char)s[1] << 8 | (u32)(unsigned char)s[2] << 16 | (u32)(unsigned char)s[3] << 24;
     cxt_textc[2]++;

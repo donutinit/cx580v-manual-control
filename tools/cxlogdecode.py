@@ -107,7 +107,7 @@ def summarize(line):
             cap = 'off' if a.group(2) == '1d1' else '%d dB' % int(a.group(1), 16)
             return t + 'cxg sets gain cap ' + cap + failed
         return t + 'cxg sends' + rest + failed
-    if kind in ('FX', 'GL', 'TX', 'TI', 'MN', 'UL', 'AU', 'SY', 'KP', 'ID', 'MP', 'MR', 'KE', 'LB'):
+    if kind in ('FX', 'GL', 'TX', 'TI', 'MN', 'UL', 'AU', 'SY', 'KP', 'ID', 'MP', 'MR', 'KE', 'LB', 'PN'):
         return t + kind + rest
     return None
 

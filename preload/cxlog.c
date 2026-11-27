@@ -109,6 +109,22 @@ int cx_log_enabled(void) { return enabled; }
 
 /* --- volcado ----------------------------------------------------------- */
 
+static volatile int want_sync;
+static volatile u32 sync_gen;
+
+/*
+ * Espera (hasta 1.5 s) a que lo anotado hasta ahora esté en el archivo. Para
+ * los pasos que pueden tumbar la aplicación: si se cae, la bitácora dice dónde.
+ */
+void cx_log_sync(void)
+{
+    u32 gen = sync_gen;
+    int i;
+    if (!enabled) return;
+    want_sync = 1;
+    for (i = 0; i < 60 && sync_gen == gen && enabled; i++) cx_sleep_ms(25);
+}
+
 static char out[BUF];
 
 static void flusher(void)
@@ -120,7 +136,10 @@ static void flusher(void)
 
     sys6(SYS_rt_sigprocmask, 0, (long)all, 0, 8, 0, 0);
     while (total < CX_LOG_MAX) {
-        cx_sleep(CX_FLUSH_SECS);
+        {
+            int k;   /* en rebanadas, para atender cx_log_sync() sin esperar el plazo */
+            for (k = 0; k < CX_FLUSH_SECS * 20 && !want_sync; k++) cx_sleep_ms(50);
+        }
         lock();
         n = used;
         if (n > CX_LOG_MAX - total) n = CX_LOG_MAX - total;
@@ -145,6 +164,8 @@ static void flusher(void)
             last_dropped = dropped;
         }
         if (!n) {
+            want_sync = 0;
+            sync_gen++;
             if (!enabled) break;
             continue;
         }
@@ -156,6 +177,8 @@ static void flusher(void)
         cx_fsync(fd);
         cx_close(fd);
         total += n;
+        want_sync = 0;
+        sync_gen++;
     }
     enabled = 0;
 }

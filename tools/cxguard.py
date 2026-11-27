@@ -37,9 +37,11 @@ TARGETS = ('view/IRIS', 'view/SHUTTER_SPEED', 'view/AGC_LIMIT', 'view/AE_SHIFT',
 MAX_REDIRECTS = 8
 MAX_CONFIG = 1023
 MAX_LABELS = 24
-MAX_IMAGES = 16
+MAX_IMAGES = 24
 MAX_TEXTS = 4
 MAX_MENU_RULES = 32
+MAX_HIDEBOXES = 4
+MAX_HIDEIDS = 12
 #: Menu tables the library knows (offset of the root in viewUnified7.so 1.07) and their highest item id.
 MENUS = {'c347c': 254, 'b7220': 77, 'bb980': 205, 'c0380': 27}
 
@@ -53,6 +55,7 @@ def check_config(text):
     images = 0
     texts = 0
     menu_rules = 0
+    hideboxes = hideids = 0
     for n, line in enumerate(text.splitlines(), 1):
         w = line.split()
         if not w:
@@ -77,6 +80,23 @@ def check_config(text):
             texts += 1
         elif len(w) == 2 and w[0] == 'uxlog' and w[1] in ('0', '1'):
             pass
+        elif len(w) == 2 and w[0] == 'panel' and w[1] in ('0', '1', '2'):
+            pass
+        elif len(w) == 6 and w[0] == 'panelz' and w[1] in tuple('01234') and all(x.isdigit() for x in w[2:]) \
+                and int(w[4]) >= 16 and int(w[5]) >= 16 and int(w[2]) + int(w[4]) <= 640 and int(w[3]) + int(w[5]) <= 480:
+            pass
+        elif len(w) == 5 and w[0] == 'hidebox' and all(x.isdigit() for x in w[1:]) \
+                and int(w[3]) >= 8 and int(w[4]) >= 8 and int(w[1]) + int(w[3]) <= 720 and int(w[2]) + int(w[4]) <= 560:
+            hideboxes += 1
+        elif len(w) == 2 and w[0] == 'hidew' and 1 <= len(w[1]) <= 8 and all(c in '0123456789abcdefABCDEF' for c in w[1]):
+            hideids += 1
+        elif len(w) == 2 and w[0] == 'paneldump' and w[1] in ('0', '1'):
+            pass
+        elif len(w) == 3 and w[0] == 'panelfont' and w[1] in tuple('01234') \
+                and 1 <= len(w[2]) <= 8 and all(c in '0123456789abcdefABCDEF' for c in w[2]):
+            pass
+        elif len(w) == 2 and w[0] == 'paneldraw' and w[1] in ('0', '1'):
+            pass
         elif len(w) == 2 and w[0] == 'textlog' and w[1] in ('0', '1'):
             pass
         elif len(w) == 2 and w[0] in ('objmanual', 'holdmanual', 'gainshift', 'isoshift', 'expogain', 'unlockiso', 'autounlock') and w[1] in ('0', '1'):
@@ -93,6 +113,10 @@ def check_config(text):
         raise GuardError('more than %d texts' % MAX_TEXTS)
     if menu_rules > MAX_MENU_RULES:
         raise GuardError('more than %d show/hide rules' % MAX_MENU_RULES)
+    if hideboxes > MAX_HIDEBOXES:
+        raise GuardError('more than %d hidebox lines' % MAX_HIDEBOXES)
+    if hideids > MAX_HIDEIDS:
+        raise GuardError('more than %d hidew lines' % MAX_HIDEIDS)
 
 
 def _is_menu_item(root, item):

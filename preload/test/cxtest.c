@@ -28,6 +28,10 @@ extern u32 cxt_text[2][3];
 extern u32 cxt_image[4];
 extern u32 cxt_textc[3], cxt_mouse[3][6], cxt_push[3];
 extern u32 cxt_menu[5];
+extern u32 cxt_lab[8][10], cxt_labfont[8][5], cxt_nlab, cxt_sibling, cxt_drawn, cxt_updres;
+extern char cxt_labtext[8][20];
+extern u32 cxt_tree[6], cxt_rootpath, cxt_rootnode[2];
+u32 ge_updres(u32 self) __asm__("_ZN2ux6gfxeng14GraphicsEngine14updateResourceEv");
 u32 md_init(u32 self, u32 root, unsigned char *inc, u32 excl)
     __asm__("_ZN15CmnViewMenuData12initMenuDataEP21CmnViewMenuItemStructP26CmnViewMenuItemInconstPartP22CmnViewMenuExclusiveIF");
 
@@ -670,6 +674,169 @@ static void ux_tests(int expect)
     say(ok ? "cxtest: ux TODO OK\n" : "cxtest: ux FALLA\n");
 }
 
+static int lab_is(int i, const char *t)
+{
+    int k = 0;
+    while (t[k] && cxt_labtext[i][k] == t[k]) k++;
+    return !t[k] && !cxt_labtext[i][k];
+}
+
+/* Un dedo: llega, aprieta, suelta y se va fuera de la pantalla. */
+static void tap(u32 x, u32 y)
+{
+    ws_move(0x9001, 0, x, y, 0);
+    ws_press(0x9001, 0, 0, 0);
+    ws_release(0x9001, 0, 0, 0);
+    ws_move(0x9001, 0, 2000, 2000, 0);
+}
+
+/*
+ * Árbol de widgets falso para la capa del panel: raíz -> vista -> {botón W en
+ * (590,150) 50x80 con un icono dentro, indicador en (130,440) 40x24, medidor de
+ * audio en (440,400) 110x60 que no debe tocarse}. Campos como en la cámara.
+ */
+static u32 f_root[0x290 / 4], f_view[0x290 / 4], f_btn[0x290 / 4], f_icon[0x290 / 4], f_ind[0x290 / 4], f_meter[0x290 / 4];
+static void fake(u32 *w, int x, int y, int ww, int hh, u32 id)
+{
+    w[0] = 0x12340000u;                  /* «vtable» */
+    w[0x3c / 4] = (u32)(x << 16); w[0x40 / 4] = (u32)(y << 16);
+    w[0x78 / 4] = (u32)(ww << 16); w[0x7c / 4] = (u32)(hh << 16);
+    w[0x104 / 4] = id;
+}
+static int fmode(const u32 *w) { return ((const unsigned char *)w)[0x19]; }
+
+/* cxmode.txt = "panel 2\nhidebox 560 120 80 360\nhidew 1d0001\npaneldump 1" o vacío.
+ * Zonas por omisión: «-» (572,262) 68x90, iris (110,418) 100x52, obturación (210,418) 120x52,
+ * ganancia (330,418) 100x52, «+» (572,142) 68x90. */
+static void panel_tests(int expect)
+{
+    int ok = 1;
+    u32 a0, s0, p0, r0, m0;
+    const u32 PX = 600, PY = 180, MX = 600, MY = 300, IX = 150, SX = 270, GX = 380, VY = 440;
+    fake(f_root, 0, 0, 640, 480, 0x10001);
+    fake(f_view, 0, 0, 640, 480, 0x10002);
+    fake(f_btn, 590, 150, 50, 80, 0x1b0001);
+    fake(f_icon, 5, 5, 40, 70, 0x1c0001);      /* dentro del botón: posición relativa */
+    fake(f_ind, 130, 440, 40, 24, 0x1d0001);
+    fake(f_meter, 440, 400, 110, 60, 0x1e0001);
+    cxt_tree[0] = (u32)f_root; cxt_tree[1] = (u32)f_view; cxt_tree[2] = (u32)f_btn; cxt_tree[3] = (u32)f_icon;
+    cxt_tree[4] = (u32)f_ind; cxt_tree[5] = (u32)f_meter;
+    cxt_rootnode[0] = (u32)f_root;
+    v_open(0x5555, "view/MOV_REC", 0);
+    if (!expect) {
+        tap(PX, PY);
+        ok &= check("panel: sin la opción no se crea nada y los toques pasan",
+                    cxt_nlab == 0 && cxt_mouse[1][5] == 1 && cxt_mouse[2][5] == 1 && cxt_mouse[0][5] == 2);
+        ok &= check("panel: updateResource pasa intacta", ge_updres(0x100) == 0x107 && cxt_updres == 1);
+        say(ok ? "cxtest: panel TODO OK\n" : "cxtest: panel FALLA\n");
+        return;
+    }
+    ok &= check("panel: cinco etiquetas en la capa física, pasivas, cada una en su zona",
+                cxt_nlab == 5 && cxt_lab[0][1] == 0xa11a && cxt_lab[4][1] == 0xa11a &&
+                cxt_lab[0][4] == (572u << 16) && cxt_lab[0][5] == (262u << 16) && cxt_lab[0][2] == (68u << 16) && cxt_lab[0][3] == (90u << 16) &&
+                cxt_lab[1][4] == (110u << 16) && cxt_lab[1][5] == (418u << 16) && cxt_lab[2][2] == (120u << 16) &&
+                cxt_lab[4][5] == (142u << 16) && cxt_lab[2][7] == 1);
+    ok &= check("panel: la fuente medida en la cámara",
+                cxt_labfont[1][0] == 0x2038000 && cxt_labfont[1][1] == 0x203e010 && cxt_labfont[1][2] == 0x203e003 &&
+                cxt_labfont[1][3] == 0x2036029 && cxt_labfont[1][4] == 0x2038002);
+    ok &= check("panel: textos iniciales, con el iris elegido",
+                lab_is(0, "-") && lab_is(1, "[F--A]") && lab_is(2, "--A") && lab_is(3, "AGC") && lab_is(4, "+") && cxt_drawn >= 5);
+    if (!cxt_rootpath) {
+        ok &= check("panel: sin llegar a la raíz de la capa todavía no hay qué recorrer", fmode(f_btn) == 0 && fmode(f_ind) == 0);
+        gi_setimage((u32)f_icon, 0x02200001, 0);        /* la interfaz toca un icono nativo: se sube hasta su vista */
+        ts_setstr((u32)f_ind + 0x144, 0x02042999);      /* y una etiqueta nativa de la misma vista */
+        ws_move(0x9001, 0, 2000, 2000, 0);              /* cualquier llamada de la interfaz: se recorre */
+    }
+    ok &= check("panel: oculta lo nativo que cabe en la caja (botón e icono) y lo pedido por ID; lo demás no",
+                fmode(f_btn) == 3 && fmode(f_icon) == 3 && fmode(f_ind) == 3 && fmode(f_meter) == 0 && fmode(f_view) == 0);
+    setmode(0xf7);                       /* la interfaz ya habló con la cámara */
+    fno(280);
+    shut(1, 60);
+    notify(0x8588, 0x9706, 0x1ec, 0, 0);
+    ok &= check("panel: muestra lo que avisa la cámara", lab_is(1, "[F2.8A]") && lab_is(2, "1/60A") && lab_is(3, "AGC12"));
+
+    a0 = cxt_obj[0][3]; p0 = cxt_mouse[1][5]; r0 = cxt_mouse[2][5]; m0 = cxt_mouse[0][5];
+    tap(PX, PY);                         /* + con el iris en automático */
+    ok &= check("panel: el toque en el panel no llega a la interfaz (sólo los Move de antes y de después)",
+                cxt_mouse[1][5] == p0 && cxt_mouse[2][5] == r0 && cxt_mouse[0][5] == m0 + 2);
+    ok &= check("panel: el primer + sobre el iris automático sólo pide prioridad de iris",
+                find_seen(a0, cxt_obj[0][3], 0x7558, 0x95c8, 0xf3) >= 0 && lab_is(1, "[F2.8]"));
+    s0 = cxt_obj[1][3];
+    tap(PX, PY);
+    ok &= check("panel: el siguiente + da un paso de iris",
+                cxt_obj[1][3] == s0 + 1 && cxt_sync_seen[0] == 0x6502 && cxt_sync_seen[1] == 0x9573 && (cxt_sync_seen[2] & 0xff) == 1);
+    fno(310);
+    ok &= check("panel: aparece el valor nuevo", lab_is(1, "[F3.1]"));
+    tap(MX, MY);
+    ok &= check("panel: - da el paso contrario", cxt_obj[1][3] == s0 + 2 && (cxt_sync_seen[2] & 0xff) == 0xff);
+
+    tap(SX, VY);                         /* elige la obturación */
+    ok &= check("panel: tocar otro valor lo elige", lab_is(2, "[1/60A]") && lab_is(1, "F3.1"));
+    a0 = cxt_obj[0][3];
+    tap(PX, PY);
+    ok &= check("panel: con el iris manual, la obturación se fija sin cambiar la prioridad",
+                find_seen(a0, cxt_obj[0][3], 0x75b6, 0x96d6, 0x1cd) >= 0 && find_seen(a0, cxt_obj[0][3], 0x7558, 0x95c8, 0xf4) < 0 &&
+                lab_is(2, "[1/60]"));
+    s0 = cxt_obj[1][3];
+    tap(PX, PY);
+    ok &= check("panel: paso de obturación en prioridad de iris",
+                cxt_obj[1][3] == s0 + 1 && cxt_sync_seen[0] == 0x6504 && cxt_sync_seen[1] == 0x9574 && (cxt_sync_seen[2] & 0xff) == 1);
+    shut(1, 90);
+    ok &= check("panel: aparece la obturación nueva", lab_is(2, "[1/90]"));
+    a0 = cxt_obj[0][3];
+    tap(SX, VY);                         /* tocar el valor elegido: automático */
+    ok &= check("panel: tocar el valor elegido lo devuelve a automático",
+                find_seen(a0, cxt_obj[0][3], 0x75b6, 0x96d6, 0x1cc) >= 0 && lab_is(2, "[1/90A]"));
+    tap(IX, VY);                         /* elige el iris */
+    a0 = cxt_obj[0][3];
+    tap(IX, VY);
+    ok &= check("panel: con los dos en automático vuelve el modo automático",
+                find_seen(a0, cxt_obj[0][3], 0x7558, 0x95c8, 0xf7) >= 0 && lab_is(1, "[F3.1A]"));
+
+    tap(GX, VY);                         /* elige la ganancia */
+    a0 = cxt_obj[0][3];
+    tap(PX, PY);
+    ok &= check("panel: + sobre la ganancia automática la fija donde está",
+                find_seen(a0, cxt_obj[0][3], 0x759e, 0x9654, 0x199) >= 0 && find_seen(a0, cxt_obj[0][3], 0x759e, 0x9652, 4) >= 0 &&
+                find_seen(a0, cxt_obj[0][3], 0x75ba, 0x96dc, 12) >= 0 && find_seen(a0, cxt_obj[0][3], 0x75ba, 0x96dd, 0x1d0) >= 0 &&
+                lab_is(3, "[12dB]"));
+    a0 = cxt_obj[0][3];
+    tap(PX, PY);
+    ok &= check("panel: + sube 3 dB", find_seen(a0, cxt_obj[0][3], 0x75ba, 0x96dc, 15) >= 0 && lab_is(3, "[15dB]"));
+    a0 = cxt_obj[0][3];
+    tap(GX, VY);
+    ok &= check("panel: tocar la ganancia elegida la devuelve a automática",
+                find_seen(a0, cxt_obj[0][3], 0x75ba, 0x96dd, 0x1d1) >= 0 && find_seen(a0, cxt_obj[0][3], 0x759e, 0x9654, 0x19a) >= 0 &&
+                lab_is(3, "[AGC12]"));
+
+    ((unsigned char *)f_btn)[0x19] = 0;  /* la vista vuelve a mostrar su botón */
+    p0 = cxt_mouse[1][5];
+    tap(300, 200);                       /* fuera del panel */
+    ok &= check("panel: un toque fuera del panel pasa", cxt_mouse[1][5] == p0 + 1);
+    ok &= check("panel: lo que la vista vuelve a mostrar se oculta otra vez", fmode(f_btn) == 3);
+    v_open(0x5555, "view/GLOBAL_MENU", 1);
+    ok &= check("panel: con el menú abierto se oculta", cxt_lab[0][6] == 3 && cxt_lab[4][6] == 3);
+    p0 = cxt_mouse[1][5];
+    tap(PX, PY);
+    ok &= check("panel: y los toques pasan al menú", cxt_mouse[1][5] == p0 + 1);
+    v_open(0x5555, "view/CAMERA_SETTING_MENU", 1);
+    v_close(0x5555, "view/CAMERA_SETTING_MENU");
+    ok &= check("panel: al cerrar el submenú sigue oculto, queda el menú principal", cxt_lab[0][6] == 3);
+    v_open(0x5555, "view/CAMERA_SETTING_MENU", 1);
+    v_open(0x5555, "view/IRIS_L", 0);    /* una pantalla cierra los menús sin avisar */
+    cxt_sibling = 1;
+    v_close(0x5555, "view/IRIS_L");
+    ok &= check("panel: vuelve al cerrar la pantalla, y al frente", cxt_lab[0][6] == 0 && cxt_lab[0][8] >= 1 && cxt_lab[4][8] >= 1);
+    v_open(0x5555, "view/CAUTION", 0);
+    ok &= check("panel: un aviso pasajero no lo oculta", cxt_lab[0][6] == 0);
+    v_open(0x5555, "view/STL_REC_CLASSIC_L", 0);
+    ok &= check("panel: en modo foto no se muestra", cxt_lab[0][6] == 3);
+    v_open(0x5555, "view/MOV_REC_L", 0);
+    ok &= check("panel: vuelve con la pantalla de video", cxt_lab[0][6] == 0);
+    ok &= check("panel: updateResource pasa intacta", ge_updres(0x100) == 0x107 && cxt_updres == 1);
+    say(ok ? "cxtest: panel TODO OK\n" : "cxtest: panel FALLA\n");
+}
+
 /* cxmode.txt = "show c347c 12\nshow c347c 13\nhide c347c 17\nshow c347c 99\nhide c347c 300\nshow 12345 12" o vacío. */
 static void menu_tests(int expect)
 {
@@ -844,6 +1011,9 @@ void _start(void)
     if (has_arg(buf, n, "noux")) ux_tests(0);
     if (has_arg(buf, n, "menu")) menu_tests(1);
     if (has_arg(buf, n, "nomenu")) menu_tests(0);
+    if (has_arg(buf, n, "panelroot")) { cxt_rootpath = 1; panel_tests(1); }
+    if (has_arg(buf, n, "panel")) panel_tests(1);
+    if (has_arg(buf, n, "nopanel")) panel_tests(0);
     if (has_arg(buf, n, "noobjmanual")) objmanual_tests(0);
     if (has_arg(buf, n, "v5")) {
         nodes[0] = (u32)node; vec[0] = (u32)nodes; vec[1] = (u32)(nodes + 1); vec[2] = vec[1];

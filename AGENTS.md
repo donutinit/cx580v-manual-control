@@ -89,6 +89,13 @@ La documentación del proyecto va en español, dentro de `docs/`.
   06:51 está otra vez la v19 normal con `cxmode-v18d.txt`. Los clips de `captures/prueba-v18/` coinciden con la
   bitácora; `tools/cxexposure.py` corrige la obturación de los AVCHD (ExifTool
   la da con divisor de 50 Hz).
+- **Panel propio (v24)**: es lo instalado desde el 2026-11-27 08:08
+  (`preload/release/cxg-v24.so`, md5 `35cf3cc5…`, con `cxmode-v24p.txt`). En la
+  pantalla de grabación de video muestra iris, obturación y ganancia y se
+  ajustan tocando, sin entrar al menú; oculta los botones W, T y grabar y los
+  indicadores nativos que repetían lo mismo. Visto por el dueño (foto) y sin
+  órdenes rechazadas en las bitácoras. Falta comprobar con un clip que lo
+  grabado coincide con el panel. Detalle en `docs/panel-propio.md`.
 - Pruebas de la biblioteca en QEMU con el cargador de la cámara y emulando su
   procesador (`-cpu arm11mpcore`): `preload/test/run.sh`. Compilador:
   contenedor `cx580-toolchain` (`toolchain/Containerfile`).
@@ -127,6 +134,8 @@ preload/test/run.sh                                                       # prue
 - `docs/research/firmware-analysis.md`: arranque, rescate, tabla de bloqueos,
   protocolo de la interfaz con la cámara, textos y pruebas en la cámara.
 - `docs/pruebas-v18.md`: guía de la prueba completa por etapas.
+- `docs/panel-propio.md`: el panel propio, su configuración y el mapa de la
+  pantalla de grabación.
 - `reports/Barrido de fuentes para la CX580V.md`: firmwares hermanos (NX70,
   EA50, AX100 en `firmware/`), valores del `Backup.bin` de la unidad, riesgos y
   lista priorizada de siguientes pasos. Lectura estática y fuentes, sin probar.

@@ -225,6 +225,7 @@ u32 cxw_open(u32 self, u32 name, u32 n)
         cxl_end(&l);
     }
     if (r_open) r = ((fn3_t)r_open)(self, name, n);
+    cxpanel_view((const char *)name, 1);
     return r;
 }
 
@@ -243,6 +244,7 @@ u32 cxw_close(u32 self, u32 name)
         cxl_end(&l);
     }
     if (r_close) r = ((fn2_t)r_close)(self, name);
+    cxpanel_view((const char *)name, 0);
     return r;
 }
 
@@ -273,6 +275,7 @@ u32 cxw_exec(u32 self, u32 model, u32 action, u32 plist)
     u32 r = 0;
     resolve();
     cxobj_tick();
+    cxpanel_hook(2);
     /*
      * holdmanual, automático por control: "automático" en la pantalla de
      * obturación con el iris manual pasa a prioridad de iris (y al revés), en
@@ -418,6 +421,7 @@ u32 cxw_info(u32 self, u32 model, u32 id, u32 out, u32 in)
     int logit;
     resolve();
     cxobj_tick();
+    cxpanel_hook(1);
     if (r_info) r = ((fn5_t)r_info)(self, model, id, out, in);
     if (id == 0xf && is_camera(model)) {
         u32 *m = find_node(out, K_AEMODE_Q1);
@@ -533,7 +537,7 @@ static u32 parse_dec(const char *w)
 static void read_mode(void)
 {
     static char m[1024];
-    char *w[4];
+    char *w[6];
     long fd = cx_open(CX_MODE_PATH, O_RDONLY, 0), n, i;
     unsigned k;
     int nw;
@@ -548,7 +552,7 @@ static void read_mode(void)
         while (i < n && m[i] != '\n') {
             while (i < n && (m[i] == ' ' || m[i] == '\t' || m[i] == '\r')) m[i++] = 0;
             if (i >= n || m[i] == '\n') break;
-            if (nw < 4) w[nw++] = &m[i];
+            if (nw < 6) w[nw++] = &m[i];
             while (i < n && m[i] != ' ' && m[i] != '\t' && m[i] != '\r' && m[i] != '\n') i++;
         }
         if (i < n) m[i++] = 0;
@@ -582,6 +586,33 @@ static void read_mode(void)
         } else if (nw == 2 && same(w[0], "uxlog")) {
             cx_uxlog = parse_dec(w[1]) == 1;
 #endif
+        } else if (nw == 2 && same(w[0], "panel")) {
+            u32 v = parse_dec(w[1]);
+            if (v <= 2) cx_panel = (int)v;
+            if (cx_panel) {               /* el panel necesita fijar el otro control y dar pasos destrabados */
+                cx_holdmanual = 1;
+                cx_autounlock = 1;
+                if (!cx_gainlock) cx_gainlock = 4;
+            }
+        } else if (nw == 6 && same(w[0], "panelz")) {
+            u32 k = parse_dec(w[1]), x = parse_dec(w[2]), y = parse_dec(w[3]), pw = parse_dec(w[4]), ph = parse_dec(w[5]);
+            if (k < 5 && pw >= 16 && ph >= 16 && x + pw <= 640 && y + ph <= 480) {
+                cx_panel_rect[k][0] = (int)x; cx_panel_rect[k][1] = (int)y;
+                cx_panel_rect[k][2] = (int)pw; cx_panel_rect[k][3] = (int)ph;
+            }
+        } else if (nw == 5 && same(w[0], "hidebox")) {
+            u32 x = parse_dec(w[1]), y = parse_dec(w[2]), bw = parse_dec(w[3]), bh = parse_dec(w[4]);
+            /* La caja puede pasarse de la pantalla: hay botones nativos que miden un píxel de más. */
+            if (bw >= 8 && bh >= 8 && x + bw <= 720 && y + bh <= 560) cxpanel_hidebox((int)x, (int)y, (int)bw, (int)bh);
+        } else if (nw == 2 && same(w[0], "hidew")) {
+            cxpanel_hideid(parse_hex_n(w[1], 8));
+        } else if (nw == 2 && same(w[0], "paneldump")) {
+            cx_panel_dump = parse_dec(w[1]) == 1;
+        } else if (nw == 3 && same(w[0], "panelfont")) {
+            u32 k = parse_dec(w[1]);
+            if (k < 5) cx_panel_font[k] = parse_hex_n(w[2], 8);
+        } else if (nw == 2 && same(w[0], "paneldraw")) {
+            cx_panel_draw = parse_dec(w[1]) == 1;
         } else if (nw == 2 && same(w[0], "textlog")) {
             cx_textlog = parse_dec(w[1]) == 1;
         } else if (nw == 2 && same(w[0], "gainlock")) {
