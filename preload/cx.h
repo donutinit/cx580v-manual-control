@@ -77,6 +77,23 @@ void cx_log_start(void);
 void cxinh_start(void);
 void cxview_start(void);
 void cxobj_start(void);
+void cxtext_start(void);
+void cxmenu_start(void);
+/* cxmenu.c: muestra (show = 1) u oculta el ítem `id` del menú cuya tabla está en `root`. */
+void cxmenu_add(u32 root, u32 id, int show);
+/* cxtext.c: etiqueta `from` se muestra como `to` (16 bits bajos del número de texto). */
+void cxtext_add(u32 from, u32 to);
+void cxtext_add_image(u32 from, u32 to);
+/* cxtext.c: la etiqueta `from` muestra el texto libre `word` ('_' es espacio). */
+void cxtext_add_text(u32 from, const char *word);
+#ifdef CX_UX
+/* cxux.c: bitácora de tacto y botones (sólo en cxg-ux.so). */
+extern int cx_uxlog;
+void cxux_start(void);
+void cxux_flush(void);
+void cxux_note_label(u32 sprite, u32 id);
+#endif
+extern int cx_textlog;
 
 /* Configuración de cxmode.txt que usa cxobj.c (la lee cxview.c). */
 extern int cx_objmanual;

@@ -1,0 +1,26 @@
+show c347c 12
+show c347c 13
+show c347c 15
+show c347c 16
+aeauto 6
+holdmanual 1
+gainshift 1
+gainlock 4
+label 2310 26f0
+label 2311 26f0
+label 2312 26f3
+label 2313 26f3
+label 2314 26f2
+label 2315 26f3
+image 23 187
+image 22 189
+image 21 18b
+image 20 18d
+image 24 18f
+image 1c 191
+image 1d 193
+image 1e 195
+image 1f 197
+image 25 19b
+uxlog 1
+textlog 1

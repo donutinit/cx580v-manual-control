@@ -39,18 +39,24 @@ missing=$(for f in "$SYSROOT"/usr/bin/im.elf "$SYSROOT"/usr/lib/libObj.so "$SYSR
 [ -z "$missing" ] || echo "aviso: bibliotecas que no están en el sysroot: $missing"
 
 podman run --rm -v "$PRELOAD:/src:Z" -v "$SYSROOT:$SYSROOT:ro,z" -v "$T:$T:z" cx580-toolchain \
-    sh -c "make -s cxg.so && rm -f cxg-test.so test/cxtest test/libcxt.so && make -s cxg-test.so TEST_DIR=$T && make -s test/cxtest SYSROOT=$SYSROOT" \
+    sh -c "make -s cxg.so cxg-ux.so && rm -f cxg-test.so test/cxtest test/libcxt.so && make -s cxg-test.so TEST_DIR=$T && make -s test/cxtest SYSROOT=$SYSROOT" \
     || fail "compilación"
 cp "$PRELOAD/cxg-test.so" "$SYSROOT/setting/cxg-test.so" 2>/dev/null || { chmod u+w "$SYSROOT/setting"; cp "$PRELOAD/cxg-test.so" "$SYSROOT/setting/"; }
 cp "$PRELOAD/cxg.so" "$SYSROOT/setting/cxg.so"
 cp "$PRELOAD/test/cxtest" "$SYSROOT/usr/bin/cxtest"
 cp "$PRELOAD/test/libcxt.so" "$SYSROOT/usr/lib/libcxt.so"
 
-q() { (cd "$SYSROOT" && timeout 30 qemu-arm-static -L "$SYSROOT" -E LD_LIBRARY_PATH=/lib:/usr/lib "$@"); }
+# -cpu: el ARM11 MPCore de la cámara (ARMv6K, sin Thumb-2). Sin esto QEMU acepta
+# instrucciones ARMv7 que en la cámara serían SIGILL.
+q() { (cd "$SYSROOT" && timeout 30 qemu-arm-static -cpu "${CX_QEMU_CPU:-arm11mpcore}" -L "$SYSROOT" -E LD_LIBRARY_PATH=/lib:/usr/lib "$@"); }
 
 # Símbolos sin resolver: la biblioteca no debe depender de nada.
 und=$(podman run --rm -v "$PRELOAD:/src:Z" cx580-toolchain arm-linux-gnueabi-readelf -Ws --dyn-syms cxg.so | awk '$7=="UND" && $8!=""' | wc -l)
 [ "$und" -eq 0 ] || fail "cxg.so importa $und símbolos"; ok "cxg.so no importa símbolos"
+und=$(podman run --rm -v "$PRELOAD:/src:Z" cx580-toolchain arm-linux-gnueabi-readelf -Ws --dyn-syms cxg-ux.so | awk '$7=="UND" && $8!=""' | wc -l)
+[ "$und" -eq 0 ] || fail "cxg-ux.so importa $und símbolos"; ok "cxg-ux.so no importa símbolos"
+podman run --rm -v "$PRELOAD:/src:Z" cx580-toolchain arm-linux-gnueabi-readelf -Ws --dyn-syms cxg.so | grep -q 'postMouse\|EventManager' && fail "cxg.so no debe llevar las envolturas de tacto"
+ok "cxg.so no lleva las envolturas de tacto y botones"
 
 for b in bin/busybox usr/bin/bootin.elf usr/bin/im.elf; do
     set +e; q -E LD_PRELOAD=/setting/cxg.so "$SYSROOT/$b" >/dev/null 2>&1; a=$?
@@ -243,5 +249,45 @@ echo "$out" | grep -q "lock TODO OK" || fail "gainlock"
 grep -q ' GL AE Shift 2 -> camara +4' "$T/cxreq.log" || fail "gainlock no quedó anotado"
 rm -f "$T/cxmode.txt"
 ok "gainlock: la cámara recibe AE Shift +N, la pantalla ve su valor y el tope sigue la pantalla"
+
+printf 'label 2614 28b6\nlabel 2bf1 26f0\nlabel zz 1\nlabel 12345 1\ntextlog 1\nimage 24 18f\n' > "$T/cxmode.txt"; rm -f "$T/cxreq.log"
+out=$(q -E LD_PRELOAD=/setting/cxg-test.so "$SYSROOT/usr/bin/cxtest" text 2>&1) || fail "cxtest text falló: $out"
+echo "$out" | grep "cxtest:"
+echo "$out" | grep -q "text TODO OK" || fail "label"
+grep -E ' (TX|TS|TI) ' "$T/cxreq.log" | head -12
+grep -q 'TI icon 2200024 -> 18f' "$T/cxreq.log" || fail "el cambio de icono no quedó anotado"
+grep -q 'TX sprite 2042614 -> 28b6' "$T/cxreq.log" || fail "el cambio de etiqueta no quedó anotado"
+grep -q 'TS 2042690' "$T/cxreq.log" || fail "textlog no anotó los números"
+rm -f "$T/cxmode.txt"; rm -f "$T/cxreq.log"
+out=$(q -E LD_PRELOAD=/setting/cxg-test.so "$SYSROOT/usr/bin/cxtest" notext 2>&1) || fail "cxtest notext falló: $out"
+echo "$out" | grep -q "text TODO OK" || fail "sin label los textos no deben cambiar"
+ok "label/image: etiquetas e iconos se cambian por número, a través de las funciones de la cámara"
+
+printf 'uxlog 1\ntext 2690 F2.8_1/60\n' > "$T/cxmode.txt"; rm -f "$T/cxreq.log"
+out=$(q -E LD_PRELOAD=/setting/cxg-test.so "$SYSROOT/usr/bin/cxtest" ux 2>&1) || fail "cxtest ux falló: $out"
+echo "$out" | grep "cxtest:"
+echo "$out" | grep -q "ux TODO OK" || fail "uxlog"
+grep -E ' (MP|MR|KE|LB|TX) ' "$T/cxreq.log" | head -12
+grep -q 'MP mouse=0 button=0 x=123 y=fffffffb tid=' "$T/cxreq.log" || fail "el toque no quedó anotado"
+grep -q 'KE 15020041' "$T/cxreq.log" || fail "el botón no quedó anotado"
+grep -q 'LB id=2042614 label=.* font f0f0f000 f0f0f001 f0f0f002 f0f0f003 f0f0f004 f0f0f005' "$T/cxreq.log" || fail "la fuente no quedó anotada"
+rm -f "$T/cxmode.txt"; rm -f "$T/cxreq.log"
+out=$(q -E LD_PRELOAD=/setting/cxg-test.so "$SYSROOT/usr/bin/cxtest" noux 2>&1) || fail "cxtest noux falló: $out"
+echo "$out" | grep -q "ux TODO OK" || fail "sin uxlog todo debe pasar igual"
+[ -e "$T/cxreq.log" ] && grep -qE ' (MP|MR|KE|LB) ' "$T/cxreq.log" && fail "sin uxlog no debe anotarse nada de tacto"
+ok "uxlog: tacto y botones pasan intactos por los trampolines y quedan anotados sólo si se pide"
+
+printf 'show c347c 12\nshow c347c 13\nhide c347c 17\nshow c347c 99\nhide c347c 300\nshow 12345 12\n' > "$T/cxmode.txt"; rm -f "$T/cxreq.log"
+out=$(q -E LD_PRELOAD=/setting/cxg-test.so "$SYSROOT/usr/bin/cxtest" menu 2>&1) || fail "cxtest menu falló: $out"
+echo "$out" | grep "cxtest:"
+echo "$out" | grep -q "menu TODO OK" || fail "show/hide"
+grep -E ' MN ' "$T/cxreq.log" | head -8
+grep -q 'MN init menu=c347c root id=ff' "$T/cxreq.log" || fail "la tabla de menú no quedó a 0xc347c de la base"
+grep -q 'MN show menu=c347c id=c state 0->2 valid 1->1' "$T/cxreq.log" || fail "show no quedó anotado"
+grep -q 'MN hide menu=c347c id=11 state 2->0 valid 1->1' "$T/cxreq.log" || fail "hide no quedó anotado"
+rm -f "$T/cxmode.txt"; rm -f "$T/cxreq.log"
+out=$(q -E LD_PRELOAD=/setting/cxg-test.so "$SYSROOT/usr/bin/cxtest" nomenu 2>&1) || fail "cxtest nomenu falló: $out"
+echo "$out" | grep -q "menu TODO OK" || fail "sin reglas el menú no debe cambiar"
+ok "show/hide: el estado de los ítems del menú se corrige dentro de initMenuData, sólo en la tabla conocida"
 
 echo "TODO OK"

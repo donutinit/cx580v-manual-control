@@ -22,6 +22,11 @@ pantallas de la PJ760V que ya vienen en el firmware.
     es por control.
 - Lo que no funcionó (ISO en video, exposición manual de fábrica) y por qué está
   en la tabla de versiones de `docs/research/firmware-analysis.md`.
+- Probado en la cámara el 27 de noviembre (`preload/release/cxg-v19.so` con
+  `cxmode-v18d.txt`, resultados en `docs/pruebas-v18.md`): entradas IRIS,
+  Shutter Speed, Gain y White Balance Shift en el menú de fábrica, ganancia
+  mostrada en dB, menú recortado y corrección del desvío de 1/3 de paso al
+  cambiar entre iris y obturación.
 - Estado al día y reglas de trabajo: `AGENTS.md`.
 
 ## Preparar el entorno

@@ -36,6 +36,12 @@ TARGETS = ('view/IRIS', 'view/SHUTTER_SPEED', 'view/AGC_LIMIT', 'view/AE_SHIFT',
            'view/EXPOSURE')
 MAX_REDIRECTS = 8
 MAX_CONFIG = 1023
+MAX_LABELS = 24
+MAX_IMAGES = 16
+MAX_TEXTS = 4
+MAX_MENU_RULES = 32
+#: Menu tables the library knows (offset of the root in viewUnified7.so 1.07) and their highest item id.
+MENUS = {'c347c': 254, 'b7220': 77, 'bb980': 205, 'c0380': 27}
 
 
 def check_config(text):
@@ -43,6 +49,10 @@ def check_config(text):
     if len(text.encode('ascii')) > MAX_CONFIG:
         raise GuardError('config is longer than %d bytes' % MAX_CONFIG)
     redirects = 0
+    labels = 0
+    images = 0
+    texts = 0
+    menu_rules = 0
     for n, line in enumerate(text.splitlines(), 1):
         w = line.split()
         if not w:
@@ -57,12 +67,47 @@ def check_config(text):
             pass
         elif len(w) == 2 and w[0] == 'gainlock' and w[1] in tuple('0123456789'):
             pass
+        elif len(w) == 3 and w[0] == 'label' and all(_is_text_id(x) for x in w[1:]):
+            labels += 1
+        elif len(w) == 3 and w[0] in ('show', 'hide') and _is_menu_item(w[1], w[2]):
+            menu_rules += 1
+        elif len(w) == 3 and w[0] == 'image' and all(_is_text_id(x) for x in w[1:]):
+            images += 1
+        elif len(w) == 3 and w[0] == 'text' and _is_text_id(w[1]) and _is_free_text(w[2]):
+            texts += 1
+        elif len(w) == 2 and w[0] == 'uxlog' and w[1] in ('0', '1'):
+            pass
+        elif len(w) == 2 and w[0] == 'textlog' and w[1] in ('0', '1'):
+            pass
         elif len(w) == 2 and w[0] in ('objmanual', 'holdmanual', 'gainshift', 'isoshift', 'expogain', 'unlockiso', 'autounlock') and w[1] in ('0', '1'):
             pass
         else:
             raise GuardError('line %d not understood: %r' % (n, line))
     if redirects > MAX_REDIRECTS:
         raise GuardError('more than %d redirects' % MAX_REDIRECTS)
+    if labels > MAX_LABELS:
+        raise GuardError('more than %d labels' % MAX_LABELS)
+    if images > MAX_IMAGES:
+        raise GuardError('more than %d images' % MAX_IMAGES)
+    if texts > MAX_TEXTS:
+        raise GuardError('more than %d texts' % MAX_TEXTS)
+    if menu_rules > MAX_MENU_RULES:
+        raise GuardError('more than %d show/hide rules' % MAX_MENU_RULES)
+
+
+def _is_menu_item(root, item):
+    """A known menu table of viewUnified7.so 1.07 and an id inside its state array."""
+    return root in MENUS and item.isdigit() and 1 <= int(item) <= MENUS[root]
+
+
+def _is_free_text(word):
+    """One word of printable ASCII, 1-23 characters ('_' stands for a space)."""
+    return 1 <= len(word) <= 23 and all(33 <= ord(c) <= 126 for c in word)
+
+
+def _is_text_id(word):
+    """Low 16 bits of a 0x0204xxxx text id or 0x0220xxxx image id: 1-4 hex digits, not zero."""
+    return 1 <= len(word) <= 4 and all(c in '0123456789abcdefABCDEF' for c in word) and int(word, 16) != 0
 #: Files the library writes; guard-fetch copies them, guard-remove deletes them.
 DUMP_PATHS = (INH_PATH, REQ_PATH)
 ENV_PATH = '/setting/env.txt'

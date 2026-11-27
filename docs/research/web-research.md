@@ -260,8 +260,8 @@ En HD, el dispositivo MTP mostró las dos tomas `.MTS` de la SD. Las copias coin
 
 | Archivo | Ajuste previsto | Duración | Iris | Obturación | Ganancia | Luma central |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| `20261127140833.MTS` | Low Lux Off | 4.032 s | f/1.8 | 1/50 s | 6 dB | 82.19 |
-| `20261127140856.MTS` | Low Lux On | 3.008 s | f/1.8 | 1/50 s | 9 dB | 88.50 |
+| `20261127140833.MTS` | Low Lux Off | 4.032 s | f/1.8 | 1/60 s | 6 dB | 82.19 |
+| `20261127140856.MTS` | Low Lux On | 3.008 s | f/1.8 | 1/60 s | 9 dB | 88.50 |
 
 En esta escena la toma con Low Lux registró 3 dB más de ganancia, con el mismo iris y tiempo de exposición. La luma es la mediana por cuadro de `YAVG` en el cuarto central de la imagen entre 0.5 y 2.5 s, con 60 cuadros por archivo. En ambos clips ExifTool reportó `Program AE`, `Focus = Auto (0.2)` y `WhiteBalance = Daylight` (código `3`). El ajuste previsto para las tomas era Indoor. Queda pendiente comprobar cómo se corresponde la etiqueta H.264 con el menú de la cámara.
 

@@ -25,13 +25,37 @@ STD_WHITE_BALANCE = {0x00: 'Auto', 0x02: 'One Push', 0x11: 'Indoor'}
 STD_FOCUS = {0x00: 'Auto', 0x01: 'Manual'}
 
 
+# ExifTool divides the AVCHD shutter count by 28125 (1125 lines x 25 frames, 50 Hz).
+# This 60 Hz camera counts in 1/33750 s (1125 x 30): checked on 2026-11-27 against
+# the camera log, where 1/60 and 1/125 on screen were recorded as counts 562 and 270.
+AVCHD_SHUTTER_SCALE = 28125 / 33750
+SHUTTER_STEPS = (8, 15, 30, 60, 90, 100, 125, 180, 250, 350, 500, 725, 1000, 1500, 2000,
+                 3000, 4000, 6000, 10000)
+
+
+def avchd_shutter(value):
+    """Turn ExifTool's AVCHD exposure time into the shutter this camera really used."""
+    text = str(value)
+    try:
+        seconds = 1 / float(text[2:]) if text.startswith('1/') else float(text)
+    except (ValueError, ZeroDivisionError):
+        return text
+    if seconds <= 0:
+        return text
+    denominator = 1 / (seconds * AVCHD_SHUTTER_SCALE)
+    nearest = min(SHUTTER_STEPS, key=lambda step: abs(step - denominator))
+    if abs(nearest - denominator) <= 0.04 * nearest:
+        denominator = nearest
+    return f'1/{round(denominator)}' if denominator >= 1 else f'{1 / denominator:g}'
+
+
 def exposure_values(record):
     """Collect distinct values in the order ExifTool reports them."""
     values = {tag: [] for tag, _ in FIELDS}
     for key, value in record.items():
         group, _, tag = key.rpartition(':')
         if group.startswith('H264:') and tag in values and value is not None:
-            values[tag].append(str(value))
+            values[tag].append(avchd_shutter(value) if tag == 'ExposureTime' else str(value))
     return {tag: ', '.join(dict.fromkeys(items)) for tag, items in values.items()}
 
 

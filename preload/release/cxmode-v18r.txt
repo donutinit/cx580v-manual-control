@@ -1,0 +1,36 @@
+redirect view/EXPOSURE view/IRIS
+redirect view/SPOT_METER view/SHUTTER_SPEED
+redirect view/SPOT_METER_FOCUS view/AE_SHIFT
+redirect view/TELEMACRO view/WB_SHIFT
+label 2613 28b5
+label 2614 28b6
+label 2618 28b7
+label 2bee 2b9b
+label 2bef 2b9c
+label 2bf4 2b9d
+label 2bf0 26f0
+label 2bf1 26f0
+label 2bf2 26f0
+label 2c64 2d22
+label 2c65 2d23
+label 2c66 2d23
+aeauto 6
+holdmanual 1
+gainshift 1
+gainlock 4
+label 2310 26f0
+label 2311 26f0
+label 2312 26f3
+label 2313 26f3
+label 2314 26f2
+label 2315 26f3
+image 23 187
+image 22 189
+image 21 18b
+image 20 18d
+image 24 18f
+image 1c 191
+image 1d 193
+image 1e 195
+image 1f 197
+image 25 19b

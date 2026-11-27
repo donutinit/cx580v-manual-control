@@ -55,6 +55,9 @@
 #ifndef CX_FIX_WINDOW_MS
 #define CX_FIX_WINDOW_MS 4000
 #endif
+#ifndef CX_FIX_ARMED_MS
+#define CX_FIX_ARMED_MS 1500      /* tras el cambio, tiempo que se vigila aunque el valor esté bien */
+#endif
 #define MSG_SYNC_IRIS_DRIVE   0x6502   /* paso de iris: SIGNED char (tipo 3) */
 #define MSG_SYNC_SHUT_DRIVE   0x6504
 #define P_IRIS_DRIVE          0x9573
@@ -668,7 +671,14 @@ static void fx_run(int k, u32 t)
         return;   /* dar tiempo a que llegue el valor tras el cambio de modo */
     }
     err = cmp_cur(k);
-    if (err == 0) { f->active = 0; fx_log("listo", k, 0); return; }
+    if (err == 0) {
+        /* Sigue atento un rato: la cámara a veces mueve el control unas décimas
+         * de segundo después del cambio de prioridad (bitácora v16). */
+        if (t - f->t0 < CX_FIX_ARMED_MS) return;
+        f->active = 0;
+        fx_log("listo", k, 0);
+        return;
+    }
     step = err > 0 ? -fx_sign[k] : fx_sign[k];
     f->prev_a = k ? v_sn : v_fno;
     f->prev_b = v_sd;
@@ -683,6 +693,9 @@ static void fx_run(int k, u32 t)
 void cxobj_tick(void)
 {
     u32 r, t;
+#ifdef CX_UX
+    if (cx_uxlog && cx_log_enabled()) cxux_flush();
+#endif
     if ((!pend_stage && !fx[0].active && !fx[1].active) || !camera_obj) return;
     if (__sync_lock_test_and_set(&pend_busy, 1)) return;
     t = now_ms();

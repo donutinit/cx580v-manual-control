@@ -45,6 +45,22 @@ class ExposureValuesTest(unittest.TestCase):
         self.assertEqual(values['Gain'], '0')
 
 
+class AvchdShutterTest(unittest.TestCase):
+    def test_exiftool_values_become_the_shutter_on_screen(self):
+        from cxexposure import avchd_shutter
+        self.assertEqual(avchd_shutter('1/50'), '1/60')
+        self.assertEqual(avchd_shutter('1/83'), '1/100')
+        self.assertEqual(avchd_shutter('1/104'), '1/125')
+        self.assertEqual(avchd_shutter(0.0199822222222222), '1/60')
+        self.assertEqual(avchd_shutter('1/414'), '1/500')
+        self.assertEqual(avchd_shutter('unknown'), 'unknown')
+
+    def test_exposure_values_use_it_for_avchd(self):
+        values = exposure_values({'H264:Main:ExposureTime': '1/104', 'H264:Main:FNumber': 2.8})
+        self.assertEqual(values['ExposureTime'], '1/125')
+        self.assertEqual(values['FNumber'], '2.8')
+
+
 class SonyStdExposureTest(unittest.TestCase):
     def test_decodes_sony_records_and_ignores_embedded_start_codes(self):
         manual = sony_packet('0190 0001 00fa 0100', white_balance=0x02, focus=0x01)

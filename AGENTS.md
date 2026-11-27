@@ -67,9 +67,31 @@ La documentación del proyecto va en español, dentro de `docs/`.
 - El ISO no sirve en video: con los bloqueos destrabados la cámara acepta
   `SET_ISO_SPEED_RATE` (`ret=0`) pero no lo aplica. La exposición manual de
   fábrica (`SET_MANUAL_EXPOSURE_MODE`) tampoco: reinicia iris y obturación.
-- Pruebas de la biblioteca en QEMU con el cargador de la cámara:
-  `preload/test/run.sh`. Compilador: contenedor `cx580-toolchain`
-  (`toolchain/Containerfile`).
+- **v17** (`cxg.so` md5 `acb1d0dd…`) es lo instalado en la cámara al 2026-11-27:
+  la v16 más la corrección del control en segundo plano. Probada por el dueño;
+  la corrección cruzada no llegó a actuar en esa sesión.
+- **v18** (`preload/release/cxg-v18.so`,
+  md5 `0841f513…`): muestra las entradas de fábrica IRIS, Shutter Speed,
+  AE Shift (rotulada Gain) y WB Shift en Manual Settings, pone iconos de dB en
+  la pantalla de ganancia y trae configuraciones por etapas (`cxmode-v18*.txt`).
+  La guía de prueba es `docs/pruebas-v18.md`. `cxg-v18-ux.so` agrega una
+  bitácora de toques y botones.
+- **v19** (`preload/release/cxg-v19.so`, md5 `e2c57318…`) es lo instalado al
+  2026-11-27, con `cxmode-v18d.txt`. Probado en la cámara ese día con la
+  v18: las entradas nuevas del menú aparecen y abren sus pantallas (dueño y
+  bitácora), los iconos de dB se piden, y con `autounlock 1` la corrección del
+  control en segundo plano pasa (`ret=0`) y devuelve iris y obturación a su
+  valor en menos de un segundo. Ocultar ítems con el byte «válido» **no**
+  funcionó en la cámara; la v19 lo hace con el estado en 0 y el dueño confirmó
+  que las entradas ya no se ven. La variante `cxg-v19-ux.so` con
+  `cxmode-v19u.txt` anotó toques (espacio de 640×480) y el número de evento de
+  cada botón físico (tabla en `docs/research/ux-panel-propio.md`); desde las
+  06:51 está otra vez la v19 normal con `cxmode-v18d.txt`. Los clips de `captures/prueba-v18/` coinciden con la
+  bitácora; `tools/cxexposure.py` corrige la obturación de los AVCHD (ExifTool
+  la da con divisor de 50 Hz).
+- Pruebas de la biblioteca en QEMU con el cargador de la cámara y emulando su
+  procesador (`-cpu arm11mpcore`): `preload/test/run.sh`. Compilador:
+  contenedor `cx580-toolchain` (`toolchain/Containerfile`).
 - Lectura de exposición, balance y foco en clips grabados: `tools/cxexposure.py`.
 
 ## Requisito físico
@@ -92,6 +114,7 @@ required». Conectar la fuente y la cámara le toca al dueño.
 .venv/bin/python tools/cxdump.py guard-install --model 0x21010001 [--mode iris]
 .venv/bin/python tools/cxdump.py guard-fetch   --model 0x21010001 --delete # baja bitácora y volcado
 .venv/bin/python tools/cxdump.py guard-remove  --model 0x21010001         # deja /setting de fábrica
+.venv/bin/python tools/cxlogdecode.py backups/<dir>/cxreq.log --summary   # la bitácora en palabras
 preload/test/run.sh                                                       # pruebas en QEMU
 ```
 
@@ -102,4 +125,12 @@ preload/test/run.sh                                                       # prue
 - `ui/menu-prototype.html`: prototipo del menú en el navegador.
 - `docs/research/web-research.md`: fuentes, hardware, pruebas con clips y DC IN.
 - `docs/research/firmware-analysis.md`: arranque, rescate, tabla de bloqueos,
-  protocolo de la interfaz con la cámara y pruebas en la cámara.
+  protocolo de la interfaz con la cámara, textos y pruebas en la cámara.
+- `docs/pruebas-v18.md`: guía de la prueba completa por etapas.
+- `reports/Barrido de fuentes para la CX580V.md`: firmwares hermanos (NX70,
+  EA50, AX100 en `firmware/`), valores del `Backup.bin` de la unidad, riesgos y
+  lista priorizada de siguientes pasos. Lectura estática y fuentes, sin probar.
+- `docs/research/menu-fabrica.md`: estructura del menú de fábrica y cómo
+  mostrar u ocultar ítems. `docs/research/vistas-agc-aeshift.md`: pantallas de
+  ganancia. `docs/research/ux-panel-propio.md`: dibujar y leer tacto y botones
+  con el framework de Sony. Los tres son análisis estático, sin probar.

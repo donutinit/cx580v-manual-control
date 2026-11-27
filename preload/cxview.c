@@ -63,6 +63,17 @@
  *                                               bloqueada (0xa000), se contestan
  *                                               libres las funciones que la
  *                                               bloquearon y se reintenta una vez
+ *   label <de> <a>                              la etiqueta de texto 0x0204<de> se
+ *                                               muestra como la 0x0204<a> (cxtext.c)
+ *   show <raíz> <id>, hide <raíz> <id>          muestra u oculta un ítem del menú de
+ *                                               fábrica (cxmenu.c); raíz c347c = Camera/Mic
+ *   image <de> <a>                              el icono 0x0220<de> se dibuja como
+ *                                               el 0x0220<a> (cxtext.c)
+ *   text <de> <texto>                           la etiqueta 0x0204<de> muestra un texto
+ *                                               libre; '_' es espacio (cxtext.c, prueba)
+ *   uxlog 1                                     sólo en cxg-ux.so: anota toques, botones
+ *                                               y fuentes de etiquetas (cxux.c)
+ *   textlog 1                                   anota los números de texto que pasan
  *   gainlock N                                  con gainshift: a la cámara le llega
  *                                               el AE Shift en +N (el automático
  *                                               sube la ganancia hasta el tope que
@@ -198,8 +209,15 @@ u32 cxw_open(u32 self, u32 name, u32 n)
         name = (u32)rd[i].to;
         break;
     }
-    if (name && same((const char *)name, "view/IRIS")) { iris_open = 1; last_manual = 2; }
-    if (name && same((const char *)name, "view/SHUTTER_SPEED")) { shutter_open = 1; last_manual = 3; }
+    /* El menú de fábrica abre las pantallas por su nombre real, con _L. */
+    if (name && (same((const char *)name, "view/IRIS") || same((const char *)name, "view/IRIS_L"))) {
+        iris_open = 1;
+        last_manual = 2;
+    }
+    if (name && (same((const char *)name, "view/SHUTTER_SPEED") || same((const char *)name, "view/SHUTTER_SPEED_L"))) {
+        shutter_open = 1;
+        last_manual = 3;
+    }
     if (cx_log_enabled()) {
         head(&l, "OV", self, name);
         cxl_str(&l, " n=", 3);
@@ -486,6 +504,24 @@ static void add_redirect(const char *from, const char *to)
     if (from && to && nrd < MAXRD) { rd[nrd].from = from; rd[nrd].to = to; nrd++; }
 }
 
+/* Hasta `max` dígitos hexadecimales; 0 si no lo es. */
+static u32 parse_hex_n(const char *w, int max)
+{
+    u32 v = 0;
+    int n = 0;
+    for (; *w; w++, n++) {
+        u32 d;
+        if (*w >= '0' && *w <= '9') d = (u32)(*w - '0');
+        else if (*w >= 'a' && *w <= 'f') d = (u32)(*w - 'a') + 10;
+        else if (*w >= 'A' && *w <= 'F') d = (u32)(*w - 'A') + 10;
+        else return 0;
+        v = v * 16 + d;
+    }
+    return n >= 1 && n <= max ? v : 0;
+}
+
+static u32 parse_hex(const char *w) { return parse_hex_n(w, 4); }
+
 static u32 parse_dec(const char *w)
 {
     u32 v = 0;
@@ -534,6 +570,20 @@ static void read_mode(void)
             cx_unlockiso = parse_dec(w[1]) == 1;
         } else if (nw == 2 && same(w[0], "autounlock")) {
             cx_autounlock = parse_dec(w[1]) == 1;
+        } else if (nw == 3 && same(w[0], "label")) {
+            cxtext_add(parse_hex(w[1]), parse_hex(w[2]));
+        } else if (nw == 3 && (same(w[0], "show") || same(w[0], "hide"))) {
+            cxmenu_add(parse_hex_n(w[1], 5), parse_dec(w[2]), same(w[0], "show"));
+        } else if (nw == 3 && same(w[0], "image")) {
+            cxtext_add_image(parse_hex(w[1]), parse_hex(w[2]));
+        } else if (nw == 3 && same(w[0], "text")) {
+            cxtext_add_text(parse_hex(w[1]), w[2]);
+#ifdef CX_UX
+        } else if (nw == 2 && same(w[0], "uxlog")) {
+            cx_uxlog = parse_dec(w[1]) == 1;
+#endif
+        } else if (nw == 2 && same(w[0], "textlog")) {
+            cx_textlog = parse_dec(w[1]) == 1;
         } else if (nw == 2 && same(w[0], "gainlock")) {
             u32 v = parse_dec(w[1]);
             if (v <= 9) cx_gainlock = (int)v;

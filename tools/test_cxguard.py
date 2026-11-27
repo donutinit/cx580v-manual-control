@@ -83,7 +83,8 @@ class InstallTest(unittest.TestCase):
 
     def test_shipped_configs_are_valid(self):
         here = os.path.dirname(os.path.abspath(__file__))
-        for name in ('cxmode-v9.txt', 'cxmode-v12.txt', 'cxmode-v13.txt', 'cxmode-v14.txt', 'cxmode-v15.txt', 'cxmode-v15b.txt', 'cxmode-v16.txt'):
+        for name in ('cxmode-v9.txt', 'cxmode-v12.txt', 'cxmode-v13.txt', 'cxmode-v14.txt', 'cxmode-v15.txt', 'cxmode-v15b.txt', 'cxmode-v16.txt', 'cxmode-v18.txt', 'cxmode-v18b.txt', 'cxmode-v18c.txt', 'cxmode-v18d.txt', 'cxmode-v19u.txt', 'cxmode-v19k.txt',
+                     'cxmode-v18r.txt', 'cxmode-v18u.txt'):
             with open(os.path.join(here, '..', 'preload', name)) as f:
                 text = f.read()
             fs = FakeFS(stock())
@@ -92,7 +93,10 @@ class InstallTest(unittest.TestCase):
 
     def test_rejects_bad_config(self):
         for bad in ('redirect view/EXPOSURE view/ROOT\n', 'redirect view/ROOT view/IRIS\n',
-                    'aemode 7\n', 'aemode x\n', 'isoshift 2\n', 'gainlock 12\n', 'rm -rf /\n', 'x' * 2000):
+                    'aemode 7\n', 'aemode x\n', 'isoshift 2\n', 'gainlock 12\n', 'label 2614\n', 'label 0 28b6\n', 'label 2614 xyz\n',
+                    'label 12345 28b6\n', 'label 1 2\n' * 25, 'image 24\n', 'image 1 2\n' * 17, 'text 2690\n', 'text 2690 ' + 'x' * 24 + '\n',
+                    'text 1 a\n' * 5, 'uxlog 2\n', 'show c347c 0\n', 'show c347c 255\n', 'hide 12345 12\n',
+                    'show c347c\n', 'hide c347c 1\n' * 33, 'rm -rf /\n', 'x' * 2000):
             with self.assertRaises(cxguard.GuardError, msg=bad):
                 cxguard.install(FakeFS(stock()), library(), config=bad)
 

@@ -206,7 +206,7 @@ las funciones que registran «Issued ObjCamera::MSGID_SET_…»
 | `MSGID_SET_SHUT_DRIVE_MODE_CMD` | `0x75b6` | `0x2d4` | libre |
 | `MSGID_SET_AGC_LIMIT_CMD` | `0x75ba` | `0x35d` | libre |
 | `MSGID_SET_EXPOSURE_MODE_CMD` | `0x7558` | `0x5e` | libre |
-| sin nombre | `0x75be` | `0x2d5` | libre |
+| `MSGID_SET_AEL_CMD` | `0x75be` | `0x2d5` | libre |
 | `MSGID_SET_ISO_SPEED_RATE_CMD` | `0x75d0` | `0x116` | bloqueada por `0x1f7` |
 | `MSGID_SET_AE_METER_MODE_CMD` | `0x7588` | `0x174` | bloqueada por `0x1f7` |
 | `MSGID_SET_COLOR_MODE_CMD` | `0x757c` | `0xf9` | bloqueada por `0x1f7` |
@@ -364,6 +364,23 @@ sacados corriendo sus funciones de depuración en QEMU
 | Automático (con `aeauto 6`) | `SET_EXPOSURE_MODE`, `EXP_MODE_AUTO_2` (`0xf7`) |
 | AE Shift | `SET_EXPOSURE_BIAS`: `EXPOSURE_BIAS_SW`, `EXPOSURE_BIAS` (tipo 3, −4..+4), `EXPOSURE_BIAS_STEP` |
 
+Al arrancar, unos 5 s después del encendido, la interfaz manda
+`MSGID_SET_INIT_CMD` (`0x75e6`) con 123 parámetros: todos los ajustes de cámara
+de una vez. Sale en las bitácoras de la cámara del 26 de noviembre
+(`backups/20261126-21*-dumps/cxreq.log`) y deja dos cosas claras:
+
+- **El AE Shift no sobrevive al apagado.** En todos los arranques registrados
+  va `EXPOSURE_BIAS_SW = OFF` (`0x19a`) y `EXPOSURE_BIAS = 0`, también en el que
+  siguió a una sesión que terminó con AE Shift encendido en −4 (propiedades de
+  Backup `0x010700b8 = fc`, `0x010700ba = 02` en la copia de `/setting` de las
+  21:09). Una cámara a la que se le quita la guarda no hereda el +4 de la v16.
+- **Da gratis el tipo de cada parámetro**, que es lo que falta para inyectar
+  balance y foco: `WB_MODE` tipo 7 (`WB_AUTO` `0xc7`), `WB_COLOR_TEMP`
+  (`0x9589`) **tipo 4** con valor `0x28`, `WB_SHIFT_SW/LB/CC` tipo 7,
+  `FOCUS_MODE` tipo 7 (`FOCUS_MOVIE_AUTO` `0x138`), `AE_METER_MODE` tipo 7. Cada
+  línea de la bitácora tiene un largo fijo y en ésta sólo entran los primeros
+  32 parámetros; para ver los 123 hay que partirla en varias líneas.
+
 ## Control manual independiente, probado en la cámara
 
 | Versión | Qué hace | Resultado en la cámara |
@@ -383,6 +400,8 @@ sacados corriendo sus funciones de depuración en QEMU
 | v15 `autounlock 1` | si una orden propia vuelve con `0xa000`, se contestan libres las funciones que la bloquearon (aprendió `0x12a`–`0x132`, una por valor de ISO) y se reintenta | la cámara acepta cada ISO fijo (`ret=0`), pero no lo aplica: `ISO_SPEED_RATE_ACT` sigue en automático y la ganancia no cambia |
 | v13 / v15b `expogain 1` | AE Shift enciende la exposición manual de fábrica (`SET_MANUAL_EXPOSURE_MODE 0x7552`, `0x95bd = 0xea`) y cada paso es `SYNC_MANUAL_EXPOSURE_DRIVE` (`0x6506`) | al encenderla la cámara regresa iris y obturación a su programa; al volver a una prioridad se apaga y sus pasos (desbloqueada la función `0x111`) no mueven nada |
 | v16 `gainshift 1` + `gainlock 4` | la pantalla AE Shift elige el tope de ganancia; a la cámara le llega siempre AE Shift +4 y `cxg.so` le devuelve a la pantalla su propio valor al leer `EXPOSURE_BIAS_SET/ACT` (`0x9655/0x9658`) | **funciona**: con iris y obturación fijos la ganancia queda en el tope elegido; cada control se mueve sin tocar los otros. Quedan saltos esporádicos de 1/3 a 1/6 de paso, en estudio |
+| v17 | tras el cambio de prioridad también se corrige el control que queda en segundo plano (la bitácora de la v16 mostró F3.7 → F3.4 al entrar a obturación y 1/1000 → 1/725 al entrar a iris) | iris, obturación y ganancia funcionan como en la v16; en la sesión de prueba no hubo desvío, así que la corrección cruzada no llegó a actuar y sigue sin comprobarse |
+| v18 | entradas de fábrica IRIS, Shutter Speed, AE Shift y WB Shift visibles en el menú (`show`), «AE Shift» rotulado Gain (`label`), iconos de dB en su pantalla (`image`), corrección atenta 1.5 s; variante `cxg-ux.so` con bitácora de tacto y botones | **sin probar en la cámara**; pasa en QEMU. Guía: `docs/pruebas-v18.md` |
 
 Detalles:
 
@@ -411,6 +430,45 @@ Detalles:
 - El error `0xa000` de `IssueCommandAsync/Sync` es «bloqueado» y sale de
   `InhFeatureCheck` (`libObj.so`), que consulta `InhInfo::GetInhInfo` por la PLT.
 
+## Textos de la interfaz
+
+Los textos están en `/usr/share/app/string_<idioma>.uxc` (27 idiomas, unos
+4 600 textos cada uno). Tras la cabecera `uxc\x07` vienen registros alineados a
+4 bytes: una palabra `(7 << 26) | número` y el texto en UTF-8 terminado en cero.
+El número es de 32 bits, `0x0204xxxx`, y es el mismo en todos los idiomas. El
+código lo lleva como constante en sus tablas de datos.
+
+| Número | Texto | Número | Texto |
+| --- | --- | --- | --- |
+| `0x02042613/14/18` | Exposure | `0x020428b5/b6/b7` | IRIS |
+| `0x02042bee/ef/f4` | Spot Meter | `0x02042b9b/9c/9d` | Shutter Speed |
+| `0x02042bf0/f1/f2` | Spot Meter/Fcs | `0x020426f0` | Gain |
+| `0x02042c64/65/66` | Tele Macro | `0x02042d22/23` | White Balance Shift |
+| `0x02042310/11` | AE Shift | `0x02042322` | AGC Limit |
+| `0x02042bea/eb/ec` | Spot Focus | `0x02042263` | `${v1}${v2}.${v3}EV` |
+
+Las variantes de un mismo texto van en grupos; la del medio es la que aparece en
+las tablas de menú de `viewUnified7.so`.
+
+Cómo llegan a la pantalla (`libObj.so`, todo Thumb):
+
+- `GEN_Label::setText(unsigned int)` guarda el número y llama por la PLT a
+  `ux::gfxeng::TextSprite::setString(unsigned int)`, que busca el registro y lo
+  dibuja.
+- `ux::resmgr::ResourceManagerImpl::getText(unsigned int, UString&)` copia el
+  texto a una cadena. `UString::convertFromUTF8(const char*)` reemplaza el
+  contenido de una cadena existente.
+- `libObj.so` no está enlazada con `-Bsymbolic`: hasta sus llamadas internas a
+  símbolos exportados pasan por la PLT, así que una biblioteca precargada las
+  intercepta. El símbolo de una función Thumb trae el bit 0 puesto y se llama
+  con `blx` desde código ARM.
+
+`preload/cxtext.c` intercepta las dos funciones y pide otro número cuando
+`cxmode.txt` trae `label <de> <a>` (16 bits bajos, en hexadecimal). Cambiar un
+número por otro que ya existe deja el nombre traducido en cualquier idioma.
+`textlog 1` anota cada número distinto que pasa. Probado en QEMU con funciones
+Thumb de prueba; **falta probarlo en la cámara** (`preload/cxmode-v18.txt`).
+
 ## Para repetirlo
 
 ```bash
@@ -430,11 +488,15 @@ strings -n 4 lib/libObj.so | grep -c InhFeatureCheck
    `0x1f7` de la función `0x116` en `DefInh::sm_refTbl`, que está en `.data`
    de `libSysDef.so` y es escribible. Falta saber si el procesador de cámara
    aplica ISO en video.
-2. **Menú.** `viewUnified7.so` tiene las pantallas de la PJ760V
-   (`view/IRIS_L`, `view/SHUTTER_SPEED_L`, `view/AGC_LIMIT`, `view/WB_SHIFT`).
-   `menuExclusiveCameraSetting` (vtable en `0xd7188` de Ghidra) sólo aplica
-   29 reglas de exclusión entre ítems y recibe la lista de ítems ya armada.
-   Falta encontrar dónde se arma esa lista para la CX580V.
+2. **Menú.** Resuelto en el análisis, falta la cámara. El menú Camera/Mic es un
+   árbol estático en `.data` de `viewUnified7.so` (raíz `0xc347c`) y ya trae
+   IRIS (id 12), Shutter Speed (13), AGC Limit (14), AE Shift (15) y White
+   Balance Shift (16) con sus pantallas; `menuExclusiveCameraSetting` los
+   oculta en este modelo según propiedades de Backup. `preload/cxmenu.c`
+   corrige su estado dentro de `CmnViewMenuData::initMenuData`. Detalle en
+   `docs/research/menu-fabrica.md`; pantallas de ganancia en
+   `docs/research/vistas-agc-aeshift.md`; panel propio, tacto y botones en
+   `docs/research/ux-panel-propio.md`.
 3. **Órdenes directas.** Resuelto: `cxg.so` arma `ObjMsg` con las funciones de
    `libMWF.so` y las manda desde los hilos de la interfaz (dentro de las
    envolturas de `ViewBase` y `ObjIf`), nunca desde un hilo propio, porque los

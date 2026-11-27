@@ -24,6 +24,34 @@ extern u32 cxt_info_value, cxt_exec_value;
 extern u32 cxt_obj[2][4];
 extern u32 cxt_seen[16][9];
 extern u32 cxt_async_ret, cxt_sync_seen[4], cxt_check_feature, cxt_inh_blocked[4];
+extern u32 cxt_text[2][3];
+extern u32 cxt_image[4];
+extern u32 cxt_textc[3], cxt_mouse[3][6], cxt_push[3];
+extern u32 cxt_menu[5];
+u32 md_init(u32 self, u32 root, unsigned char *inc, u32 excl)
+    __asm__("_ZN15CmnViewMenuData12initMenuDataEP21CmnViewMenuItemStructP26CmnViewMenuItemInconstPartP22CmnViewMenuExclusiveIF");
+
+/* Árbol de menú falso, como el de Camera/Mic: la raíz queda a 0xc347c de la base (Makefile). */
+struct mitem { struct mitem *child; unsigned char n, pad[3]; int id; u32 text, icon, help, value_icon;
+               unsigned char row, exec, pad2[2]; int opt_num; const char *opt_str; };
+static struct mitem m_items[4] = {
+    { 0, 0, {0}, 10, 0x02042614, 0, 0, 0, 10, 5, {0}, 0, "view/EXPOSURE" },
+    { 0, 0, {0}, 12, 0x020428b6, 0, 0, 0, 10, 5, {0}, 0, "view/IRIS_L" },
+    { 0, 0, {0}, 13, 0x02042b9c, 0, 0, 0, 10, 5, {0}, 0, "view/SHUTTER_SPEED_L" },
+    { 0, 0, {0}, 17, 0x0204293a, 0, 0, 0, 10, 0, {0}, 0, 0 },
+};
+static struct mitem m_cats[1] = { { m_items, 4, {0}, 0, 0x02042da0, 0, 0, 0, 0, 0, {0}, 0, 0 } };
+__attribute__((section(".cxmenu"), used))
+static struct mitem m_root = { m_cats, 1, {0}, 255, 0, 0, 0, 0, 0, 0, {0}, 0, 0 };
+static struct mitem m_other = { m_cats, 1, {0}, 255, 0, 0, 0, 0, 0, 0, {0}, 0, 0 };   /* misma forma, otro lugar */
+static unsigned char m_inc[256 * 3];
+u32 ws_move(u32 ws, u32 mouse, u32 x, u32 y, u32 t) __asm__("_ZN2ux6wgtsys12WidgetSystem13postMouseMoveEhssNS_4core8MsecTimeE");
+u32 ws_press(u32 ws, u32 mouse, u32 button, u32 t) __asm__("_ZN2ux6wgtsys12WidgetSystem14postMousePressEhhNS_4core8MsecTimeE");
+u32 ws_release(u32 ws, u32 mouse, u32 button, u32 t) __asm__("_ZN2ux6wgtsys12WidgetSystem16postMouseReleaseEhhNS_4core8MsecTimeE");
+u32 em_push(u32 self, u32 ev) __asm__("_ZN12EventManager4pushEP5Event");
+void gi_setimage(u32 self, u32 id, u32 flag) __asm__("_ZN8GEN_Icon8setImageEjb");
+void ts_setstr(u32 self, u32 id) __asm__("_ZN2ux6gfxeng10TextSprite9setStringEj");
+u32 rm_gettext(u32 self, u32 id, u32 out) __asm__("_ZN2ux6resmgr19ResourceManagerImpl7getTextEjRNS_4core7UStringE");
 /* libMWF.so de la cámara, para armar notificaciones reales. */
 void mwf_msg_ctor(u32 *m, u32 cat, u32 mid) __asm__("_ZN3MWF6ObjMsgC1Ejj");
 void mwf_msg_dtor(u32 *m) __asm__("_ZN3MWF6ObjMsgD1Ev");
@@ -399,7 +427,21 @@ static void fix_tests(void)
     ticks(3);
     ok &= check("fix: la obturación queda en 1/180", cxt_obj[1][3] == n + 1);
 
+    /* Desvío tardío: el valor llega bien y la cámara lo mueve unas décimas después. */
+    setmode(0xf4);
+    n = cxt_obj[1][3];
+    ticks(3);                          /* todo en su valor: no hay pasos, pero sigue atento */
+    ok &= check("fix: con todo en su valor no hay pasos", cxt_obj[1][3] == n);
+    fno(24);                           /* el iris (objetivo F2.8) se mueve tarde, ya en prioridad de obturación */
+    ticks(3);
+    ok &= check("fix: un desvío que llega tarde también se corrige",
+                cxt_obj[1][3] == n + 1 && cxt_sync_seen[0] == 0x6502);
+    fno(28);
+    ticks(2);
+
     /* Zoom: el F mínimo cambió, no se corrige el iris. */
+    setmode(0xf3);
+    ticks(2);
     setmode(0xf4);                     /* sale a obturación: el iris (F2.8) no se movió */
     ticks(2);
     fno_zoom(34, 30);                  /* zoom en prioridad de obturación */
@@ -557,6 +599,103 @@ static void lock_tests(void)
     say(ok ? "cxtest: lock TODO OK\n" : "cxtest: lock FALLA\n");
 }
 
+/* cxmode.txt = "label 2614 28b6\nlabel 2bf1 26f0\nlabel zz 1\nlabel 12345 1\nimage 24 18f". */
+static void text_tests(int expect)
+{
+    int ok = 1;
+    u32 r;
+    ts_setstr(0x7001, 0x02042614);                      /* Exposure */
+    ok &= check(expect ? "text: Exposure (2614) se pide como IRIS (28b6), por la función Thumb"
+                       : "text: sin label, Exposure pasa intacto",
+                cxt_text[0][0] == 0x7001 && cxt_text[0][1] == (expect ? 0x020428b6u : 0x02042614u) && cxt_text[0][2] == 1);
+    ts_setstr(0x7002, 0x02042bf1);                      /* Spot Meter/Fcs */
+    ok &= check(expect ? "text: Spot Meter/Fcs (2bf1) se pide como Gain (26f0)" : "text: sin label, 2bf1 intacto",
+                cxt_text[0][1] == (expect ? 0x020426f0u : 0x02042bf1u));
+    ts_setstr(0x7003, 0x02042690);                      /* Focus: sin regla */
+    ok &= check("text: un texto sin regla pasa intacto", cxt_text[0][0] == 0x7003 && cxt_text[0][1] == 0x02042690);
+    ts_setstr(0x7004, 0x01002614);                      /* otro espacio de nombres */
+    ok &= check("text: un número que no es de texto (no 0x0204xxxx) pasa intacto", cxt_text[0][1] == 0x01002614);
+    ts_setstr(0x7005, 0x1e042614);                      /* con bits de tipo arriba */
+    ok &= check("text: los bits altos del número se conservan",
+                cxt_text[0][1] == (expect ? 0x1e0428b6u : 0x1e042614u));
+    r = rm_gettext(0x7006, 0x02042614, 0x100);
+    ok &= check(expect ? "text: getText también cambia el número y devuelve lo que devuelve la real"
+                       : "text: sin label, getText intacto",
+                cxt_text[1][0] == 0x7006 && cxt_text[1][1] == (expect ? 0x020428b6u : 0x02042614u) && r == 0x101);
+    gi_setimage(0x7010, 0x02200024, 0);                 /* icono de AE Shift 0 */
+    ok &= check(expect ? "image: el icono de AE Shift 0 (24) se dibuja como 12dB (18f)" : "image: sin regla, el icono pasa intacto",
+                cxt_image[0] == 0x7010 && cxt_image[1] == (expect ? 0x0220018fu : 0x02200024u) && cxt_image[2] == 0);
+    gi_setimage(0x7011, 0x02200026, 1);
+    ok &= check("image: un icono sin regla pasa intacto, con su bandera", cxt_image[1] == 0x02200026 && cxt_image[2] == 1);
+    gi_setimage(0x7012, 0x02042614, 0);
+    ok &= check("image: las reglas de texto no tocan los iconos", cxt_image[1] == 0x02042614);
+    ts_setstr(0x7007, 0x02040001);                      /* reglas mal escritas no cuentan */
+    ok &= check("text: las reglas inválidas del archivo se ignoran", cxt_text[0][1] == 0x02040001);
+    say(ok ? "cxtest: text TODO OK\n" : "cxtest: text FALLA\n");
+}
+
+/* cxmode.txt = "uxlog 1\ntext 2690 F2.8_1/60\n" (o vacío con expect = 0). */
+static void ux_tests(int expect)
+{
+    int ok = 1;
+    static u32 label[0x290 / 4];          /* GEN_Label falso; el sprite está en +0x144 */
+    static u32 ev[4] = { 0, 0x15020041, 4, 0 };
+    u32 r, i, sprite = (u32)label + 0x144;
+    for (i = 0; i < 6; i++) label[(0x264 / 4) + i] = 0xf0f0f000u + i;
+    r = ws_move(0x9001, 0, 0x0123, (u32)(short)-5 & 0xffff, 0xabcdef01);
+    ok &= check("ux: postMouseMove llega igual, con su quinto argumento de la pila y su retorno",
+                cxt_mouse[0][0] == 0x9001 && cxt_mouse[0][1] == 0 && cxt_mouse[0][2] == 0x0123 &&
+                cxt_mouse[0][3] == 0xfffb && cxt_mouse[0][4] == 0xabcdef01 && cxt_mouse[0][5] == 1 && r == 0x111);
+    r = ws_press(0x9001, 0, 0, 0x7700);
+    ok &= check("ux: postMousePress (Thumb) llega igual", cxt_mouse[1][0] == 0x9001 && cxt_mouse[1][3] == 0x7700 &&
+                cxt_mouse[1][5] == 1 && r == 0x222);
+    r = ws_release(0x9001, 0, 0, 0x7701);
+    ok &= check("ux: postMouseRelease llega igual", cxt_mouse[2][3] == 0x7701 && cxt_mouse[2][5] == 1 && r == 0x333);
+    r = em_push(0x9002, (u32)ev);
+    ok &= check("ux: EventManager::push llega igual", cxt_push[0] == 0x9002 && cxt_push[1] == (u32)ev && cxt_push[2] == 1 && r == 0);
+    ev[1] = 0x00120034;                                  /* evento que no es de botón */
+    em_push(0x9002, (u32)ev);
+    em_push(0x9002, 0);                                  /* puntero nulo: tampoco debe fallar */
+    ok &= check("ux: los demás eventos pasan sin anotarse", cxt_push[2] == 3);
+    ts_setstr(sprite, 0x02042614);                       /* etiqueta de fábrica: anota la fuente */
+    ok &= check("ux: la etiqueta pasa intacta mientras se anota su fuente", cxt_text[0][0] == sprite && cxt_text[0][1] == 0x02042614);
+    ts_setstr(sprite, 0x02042690);                       /* con regla text: texto libre */
+    if (expect)
+        ok &= check("ux: text manda el texto libre por setString(char const*), con '_' como espacio",
+                    cxt_textc[0] == sprite && cxt_textc[1] == 0x382e3246u /* "F2.8" */ && cxt_textc[2] == 1 &&
+                    cxt_text[0][1] == 0x02042614);
+    else
+        ok &= check("ux: sin regla text la etiqueta pasa por setString(id)", cxt_textc[2] == 0 && cxt_text[0][1] == 0x02042690);
+    ws_move(0x9001, 0, 10, 20, 0);                       /* un toque más: vuelca los botones anotados */
+    say(ok ? "cxtest: ux TODO OK\n" : "cxtest: ux FALLA\n");
+}
+
+/* cxmode.txt = "show c347c 12\nshow c347c 13\nhide c347c 17\nshow c347c 99\nhide c347c 300\nshow 12345 12" o vacío. */
+static void menu_tests(int expect)
+{
+    int ok = 1;
+    u32 r, i;
+    r = md_init(0x5001, (u32)&m_root, m_inc, 0x5002);
+    ok &= check("menu: initMenuData llega intacta y devuelve lo de la original",
+                cxt_menu[0] == 0x5001 && cxt_menu[1] == (u32)&m_root && cxt_menu[2] == (u32)m_inc &&
+                cxt_menu[3] == 0x5002 && cxt_menu[4] == 1 && r == 0x77);
+    if (expect) {
+        ok &= check("menu: show deja IRIS (12) y Shutter Speed (13) visibles",
+                    m_inc[12 * 3 + 1] == 2 && m_inc[12 * 3 + 2] == 1 && m_inc[13 * 3 + 1] == 2 && m_inc[13 * 3 + 2] == 1);
+        ok &= check("menu: hide pone Low Lux (17) en estado 0 sin tocar el byte válido", m_inc[17 * 3 + 1] == 0 && m_inc[17 * 3 + 2] == 1);
+    } else {
+        ok &= check("menu: sin reglas, los ocultos siguen ocultos",
+                    m_inc[12 * 3 + 1] == 0 && m_inc[13 * 3 + 1] == 1 && m_inc[17 * 3 + 2] == 1);
+    }
+    ok &= check("menu: un ítem visible y elegido no cambia", m_inc[10 * 3 + 1] == 3 && m_inc[10 * 3 + 2] == 1);
+    ok &= check("menu: un id que no está en el árbol no se escribe", m_inc[99 * 3 + 1] == 0 && m_inc[99 * 3 + 2] == 0);
+    for (i = 0; i < sizeof(m_inc); i++) m_inc[i] = 0;
+    md_init(0x5001, (u32)&m_other, m_inc, 0x5002);       /* una tabla que no está en el lugar conocido */
+    ok &= check("menu: otra tabla, aunque tenga la misma forma, no se toca",
+                m_inc[12 * 3 + 1] == 0 && m_inc[13 * 3 + 1] == 1 && m_inc[17 * 3 + 2] == 1);
+    say(ok ? "cxtest: menu TODO OK\n" : "cxtest: menu FALLA\n");
+}
+
 static void view_tests(void)
 {
     int ok = 1, i;
@@ -699,6 +838,12 @@ void _start(void)
     if (has_arg(buf, n, "nounlock")) unlock_tests(0);
     if (has_arg(buf, n, "auto")) auto_tests();
     if (has_arg(buf, n, "lock")) lock_tests();
+    if (has_arg(buf, n, "text")) text_tests(1);
+    if (has_arg(buf, n, "notext")) text_tests(0);
+    if (has_arg(buf, n, "ux")) ux_tests(1);
+    if (has_arg(buf, n, "noux")) ux_tests(0);
+    if (has_arg(buf, n, "menu")) menu_tests(1);
+    if (has_arg(buf, n, "nomenu")) menu_tests(0);
     if (has_arg(buf, n, "noobjmanual")) objmanual_tests(0);
     if (has_arg(buf, n, "v5")) {
         nodes[0] = (u32)node; vec[0] = (u32)nodes; vec[1] = (u32)(nodes + 1); vec[2] = vec[1];

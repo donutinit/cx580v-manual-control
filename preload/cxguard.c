@@ -56,6 +56,11 @@ static void cx_init(void)
         cx_log_start();
         cxview_start();
         cxobj_start();
+        cxtext_start();
+        cxmenu_start();
+#ifdef CX_UX
+        cxux_start();
+#endif
         cxinh_start();
     }
 }
