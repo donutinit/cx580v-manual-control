@@ -1,0 +1,18 @@
+# Firmware de Sony y volcados de la cámara: no se publican.
+/backups/
+/firmware/*
+!/firmware/names/
+!/firmware/ghidra/
+/firmware/ghidra/*
+!/firmware/ghidra/scripts/
+# Material de terceros: videos propios, láminas de manuales de servicio, clones.
+/captures/
+/docs/research/img/
+/vendor/
+/.venv/
+__pycache__/
+# Compilados. Las versiones probadas en la cámara están en preload/release/.
+/preload/*.so
+/preload/test/cxtest
+/preload/test/libcxt.so
+/preload/test/names

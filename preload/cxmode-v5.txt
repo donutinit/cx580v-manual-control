@@ -1,0 +1,6 @@
+redirect view/EXPOSURE view/IRIS
+redirect view/SPOT_METER view/SHUTTER_SPEED
+redirect view/SPOT_FOCUS view/AGC_LIMIT
+redirect view/SPOT_METER_FOCUS view/AE_SHIFT
+redirect view/TELEMACRO view/WB_SHIFT
+aemode 1

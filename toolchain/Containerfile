@@ -1,0 +1,6 @@
+# Compilador cruzado ARM EABI (armel) para la HDR-CX580V (CXD4132, ARMv6).
+FROM docker.io/library/debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      gcc-arm-linux-gnueabi binutils-arm-linux-gnueabi make ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
