@@ -61,6 +61,7 @@ int cx_thread(void (*fn)(void));
 /* cxdl.c */
 u32 cx_lib_base(const char *suffix);
 u32 cx_dlsym(u32 base, const char *name);
+u32 *cx_got_slot(u32 base, const char *name);      /* entrada de la GOT para una función importada */
 
 /* cxlog.c */
 struct line { char b[512]; int n; };
@@ -93,8 +94,56 @@ extern int cx_uxlog;
 void cxux_start(void);
 void cxux_flush(void);
 void cxux_note_label(u32 sprite, u32 id);
+void cxux_note_event(u32 id);                       /* un evento de EventManager::push (cualquier hilo) */
 void cxux_touch(const char *kind, u32 mouse, u32 button, int x, int y);
 #endif
+/* cxframe.c: cuadros completos en la LCD y la sonda que lo prueba (probe N). */
+extern int cx_probe;
+void cxframe_start(void);
+void cxframe_toggle(void);      /* desde un toque: prueba de memoria y cuadro de prueba */
+void cxframe_tick(void);        /* desde el hilo de la interfaz */
+int cxframe_open(void);         /* crea el cuadro de 320x200 si falta y lo pone encima; 0 si no se puede */
+void cxframe_close(void);
+u16 *cxframe_lock(u32 *row, int wait);   /* sus píxeles (`*row` por fila), o 0; wait: 0 no espera, -1 espera */
+int cxframe_front(void);        /* lo vuelve a poner encima si algo nuevo lo tapó; 1 si lo movió */
+u32 cxframe_state(void);        /* modo del widget | visible << 8 | creado << 9 */
+void cxframe_pattern(void);     /* pinta las franjas de la sonda una vez */
+void cxframe_clear(void);       /* todo transparente */
+int cxframe_prepare(void);      /* creado, encima y transparente; desde un toque u openView/closeView */
+int cxframe_ready(void);        /* 1 si ya está creado y visible */
+void cxframe_unlock(int changed);
+u32 cxframe_free_kb(void);      /* memoria libre más caché, en kB */
+/* cxdoom.c: DOOM desde el menú (doom N). */
+extern int cx_doom;
+extern u32 cx_doom_ms;
+void cxdoom_closed(const char *name);               /* después de closeView */
+extern u32 cx_doom_mb, cx_doom_hz, cx_doom_vol;
+extern int cx_doom_music;
+extern u32 cx_doom_mrate, cx_doom_chunk, cx_doom_lead;
+extern u8 cx_doom_pix[4];
+extern char cx_doom_view[40];
+void cxdoom_start(void);
+int cxdoom_active(void);
+int cxdoom_hides_panel(void);                       /* 1: el juego corre y ya no quiere el panel */
+extern u32 cx_doom_panel;
+void cxdoom_request(void);                          /* arranca en cuanto se vea la pantalla de grabación */
+void cxdoom_touch_start(void);                      /* desde un toque en la pantalla de grabación */
+int cxdoom_open(u32 self, const char *name);        /* antes de openView; 1: no se abre */
+void cxdoom_touch(int kind, int x, int y);          /* 1 apoyar, 2 arrastrar, 0 soltar */
+void cxdoom_tick(void);                             /* desde el hilo de la interfaz */
+/* cxview.c: closeView por la envoltura, para que el panel se entere. */
+void cxview_close(u32 self, const char *name);
+/* cxsound.c: efectos de DOOM por la ruta de los pitidos (doomsound 1). */
+extern int cx_sound;
+void cxsound_music(const u8 *data, u32 len);        /* un trozo de música, desde el hilo del juego */
+u32 cxsound_cap(void);                              /* bytes como máximo por pitido */
+void cxsound_start(void);
+void cxsound_note(u32 obj, u32 cat, u32 mid);       /* desde IssueCommandAsync: toma el objeto de los pitidos */
+void cxsound_play(const u8 *data, u32 len);         /* desde el hilo del juego */
+void cxsound_tick(void);                            /* desde el hilo de la interfaz */
+void cxsound_stats(void);
+/* cxobj.c: manda ObjMsg(0x3410, 0x1120), el pitido `id`, al objeto de los pitidos. */
+u32 cxobj_beep(u32 obj, u32 id);
 /* cxtouch.c: envolturas del tacto. */
 void cxtouch_start(void);
 /* cxpanel.c: panel propio en la pantalla de grabación. */
@@ -110,6 +159,8 @@ void cxpanel_native(u32 widget);                    /* un widget nativo que la i
 void cxpanel_view(const char *name, int opening);   /* tras la openView/closeView original */
 void cxpanel_hook(int h);                           /* desde cualquier envoltura; h: quién llama */
 int cxpanel_press(int x, int y);                    /* 1: el toque es del panel */
+int cxpanel_base(void);                             /* 1: se ve la pantalla de grabación de video, sin nada encima */
+void cxpanel_update(void);                          /* vuelve a decidir si el panel se ve */
 /* cxobj.c: motor del panel. k: 0 iris, 1 obturación. */
 int cxobj_panel_ready(void);
 u32 cxobj_panel_get(u32 *fno, u32 *sn, u32 *sd, int *gain_db, int *gain_idx);

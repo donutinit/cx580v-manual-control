@@ -222,6 +222,7 @@ u32 cxw_open(u32 self, u32 name, u32 n)
         cxl_hex(&l, n);
         cxl_end(&l);
     }
+    if (cxdoom_open(self, (const char *)name)) return 0;   /* el ítem de menú que lanza DOOM */
     if (r_open) r = ((fn3_t)r_open)(self, name, n);
     cxpanel_view((const char *)name, 1);
     return r;
@@ -243,8 +244,11 @@ u32 cxw_close(u32 self, u32 name)
     }
     if (r_close) r = ((fn2_t)r_close)(self, name);
     cxpanel_view((const char *)name, 0);
+    cxdoom_closed((const char *)name);
     return r;
 }
+
+void cxview_close(u32 self, const char *name) { cxw_close(self, (u32)name); }
 
 /* Primer nodo de la lista con esa clave y tipo entero, o 0. */
 static u32 *find_node(u32 plist, u32 key)
@@ -613,6 +617,49 @@ static void read_mode(void)
         } else if (nw == 2 && same(w[0], "panelwb")) {
             u32 v = parse_dec(w[1]);
             if (v <= 2) cx_panel_wb = (int)v;
+        } else if (nw == 2 && same(w[0], "doom")) {
+            u32 v = parse_dec(w[1]);
+            if (v <= 2) cx_doom = (int)v;
+        } else if (nw == 2 && same(w[0], "doomview")) {
+            unsigned k;
+            for (k = 0; k < sizeof(cx_doom_view) - 1 && w[1][k]; k++) cx_doom_view[k] = w[1][k];
+            cx_doom_view[k] = 0;
+        } else if (nw == 2 && same(w[0], "doomsound")) {
+            cx_sound = parse_dec(w[1]) == 1;
+        } else if (nw == 2 && same(w[0], "doommusic")) {
+            cx_doom_music = parse_dec(w[1]) == 1;
+        } else if (nw == 2 && same(w[0], "doomchunk")) {
+            u32 v = parse_dec(w[1]);
+            if (v >= 100 && v <= 4000) cx_doom_chunk = v;
+        } else if (nw == 2 && same(w[0], "doomlead")) {
+            u32 v = parse_dec(w[1]);
+            if (v <= 8000) cx_doom_lead = v;
+        } else if (nw == 2 && same(w[0], "doomrate")) {
+            u32 v = parse_dec(w[1]);
+            if (v >= 8000 && v <= 48000) cx_doom_mrate = v;
+        } else if (nw == 2 && same(w[0], "doomhz")) {
+            u32 v = parse_dec(w[1]);
+            if (v >= 8000 && v <= 96000) cx_doom_hz = v;
+        } else if (nw == 2 && same(w[0], "doomvol")) {
+            u32 v = parse_dec(w[1]);
+            if (v >= 1 && v <= 8) cx_doom_vol = v;
+        } else if (nw == 2 && same(w[0], "doompanel")) {
+            u32 v = parse_dec(w[1]);
+            if (v <= 600) cx_doom_panel = v;
+        } else if (nw == 2 && same(w[0], "doomms")) {
+            u32 v = parse_dec(w[1]);
+            if (v <= 500) cx_doom_ms = v;
+        } else if (nw == 2 && same(w[0], "doommb")) {
+            u32 v = parse_dec(w[1]);
+            if (v >= 3 && v <= 12) cx_doom_mb = v;
+        } else if (nw == 5 && same(w[0], "doompix")) {
+            u32 r = parse_dec(w[1]), g = parse_dec(w[2]), b = parse_dec(w[3]), o = parse_hex(w[4]);
+            if (r <= 12 && g <= 12 && b <= 12) {
+                cx_doom_pix[0] = (u8)r; cx_doom_pix[1] = (u8)g; cx_doom_pix[2] = (u8)b; cx_doom_pix[3] = (u8)o;
+            }
+        } else if (nw == 2 && same(w[0], "probe")) {
+            u32 v = parse_dec(w[1]);
+            if (v <= 3) cx_probe = (int)v;
         } else if (nw == 2 && same(w[0], "paneldraw")) {
             cx_panel_draw = parse_dec(w[1]) == 1;
         } else if (nw == 2 && same(w[0], "textlog")) {

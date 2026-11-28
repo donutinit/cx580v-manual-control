@@ -103,6 +103,39 @@ La documentación del proyecto va en español, dentro de `docs/`.
   una opción en un menú que cierra todo de golpe, el panel queda oculto hasta
   abrir y cerrar MENU. A `cxg.so` le quedan 1 084 bytes antes del tope de tres
   bloques. Detalle en `docs/panel-propio.md`.
+- **DOOM, a medias**: el juego es un programa aparte (`doom/`, doomgeneric)
+  que va en la partición de PlayMemories (`/log`) con el WAD shareware;
+  `preload/cxdoom.c` lo carga, lo pinta sobre la pantalla de grabación y le
+  pasa tacto y botones; se lanza desde Setup → Connection → DOOM (el ítem Disc
+  Burn) o con un toque en la esquina de arriba a la derecha. Probado en la
+  cámara el 2026-11-27: el cuadro de prueba se ve (colores R G B A confirmados),
+  hay memoria, el menú lanza el juego, y con la v32 y la v33 el juego arrancó y
+  corrió a unos 30 turnos por segundo tomando los botones, pero en pantalla no
+  se vio. Causa probable: avanzaba dentro del hilo de la interfaz y doomgeneric
+  duerme ahí hasta su siguiente tic. La v34 lo pasó a un hilo propio y tampoco
+  se vio, ni las franjas de carga: el cuadro sólo se ve si se crea o se muestra
+  desde un toque (como la sonda), no desde los turnos periódicos. La v35 lo creó
+  desde el toque y tampoco se vio. Con la v36 **se vio**: el cuadro sólo se ve
+  mientras nuestro panel está activo (a los 15 s el panel se ocultó y el juego
+  desapareció). La v37 deja el panel activo todo el juego: el dueño confirmó
+  que funciona perfecto. **Sonido:** los efectos salen por la ruta de los
+  pitidos del sistema (`preload/cxsound.c`); con la v38 se oyeron pero todos
+  iguales (la cámara guarda los pitidos cargados), y la v39 congeló la cámara
+  (un pitido más largo que el búfer de la cámara deja su lector en un bucle
+  sin fin). **Cuidado:** nada de lo que se entrega a un pitido puede medir el
+  búfer o más; el tope es 36 480 bytes y `w_fread` lo vigila. La v40 trajo la
+  guarda, la rotación de 11 pitidos y música OPL (E1M1 en bucle en el título);
+  sonaba una octava más grave (tasa del emulador mal puesta, corregida) y le
+  quitaba el procesador al juego. La v42 la genera en su propio hilo: fluye,
+  pero seguía una octava abajo, así que la cámara reproduciría los pitidos a
+  24 kHz. Con la v43 (24 kHz) el dueño confirmó que «suena precioso», pero
+  tenue. Con la v44 (música ×12 y arranque rápido) «todo se escucha bien».
+  Después: PHOTO a fondo ya sólo dispara (v45) y, por cortes breves entre
+  trozos de música, la **v46** (`preload/release/cxg-v46.so`, md5 `cd211eb4…`,
+  con `cxmode-v46p.txt` y `CXDOOM.BIN` md5 `436dbaed…`, que van juntos) encima
+  los trozos 150 ms con fundido. **La v46 es lo instalado desde el 2026-11-27
+  20:48**; pasa en QEMU y falta que el dueño confirme que se fueron los
+  cortes. Detalle en `docs/doom.md`.
 - Pruebas de la biblioteca en QEMU con el cargador de la cámara y emulando su
   procesador (`-cpu arm11mpcore`): `preload/test/run.sh`. Compilador:
   contenedor `cx580-toolchain` (`toolchain/Containerfile`).
@@ -129,6 +162,9 @@ required». Conectar la fuente y la cámara le toca al dueño.
 .venv/bin/python tools/cxdump.py guard-fetch   --model 0x21010001 --delete # baja bitácora y volcado
 .venv/bin/python tools/cxdump.py guard-remove  --model 0x21010001         # deja /setting de fábrica
 .venv/bin/python tools/cxlogdecode.py backups/<dir>/cxreq.log --summary   # la bitácora en palabras
+doom/build.sh                                                             # compila doom/build/CXDOOM.BIN
+.venv/bin/python tools/cxdump.py pm-check     --model 0x21010001          # PlayMemories, sólo lectura
+.venv/bin/python tools/cxdump.py doom-install --model 0x21010001          # copia el juego a PlayMemories
 preload/test/run.sh                                                       # pruebas en QEMU
 ```
 
@@ -143,6 +179,9 @@ preload/test/run.sh                                                       # prue
 - `docs/pruebas-v18.md`: guía de la prueba completa por etapas.
 - `docs/panel-propio.md`: el panel propio, su configuración y el mapa de la
   pantalla de grabación.
+- `docs/doom.md`: DOOM desde el menú: piezas, instalación, controles, sonda y
+  lo que falta probar. `docs/research/dibujar-cuadros.md` y
+  `docs/research/audio-y-archivos.md`: el análisis estático en que se apoya.
 - `reports/Barrido de fuentes para la CX580V.md`: firmwares hermanos (NX70,
   EA50, AX100 en `firmware/`), valores del `Backup.bin` de la unidad, riesgos y
   lista priorizada de siguientes pasos. Lectura estática y fuentes, sin probar.

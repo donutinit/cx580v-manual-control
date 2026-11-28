@@ -16,3 +16,4 @@ __pycache__/
 /preload/test/cxtest
 /preload/test/libcxt.so
 /preload/test/names
+/doom/build/

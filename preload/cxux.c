@@ -7,7 +7,8 @@
  *    Release; esas envolturas están en cxtouch.c, que avisa aquí (cxux_touch).
  *  - Los botones físicos llegan como eventos de la aplicación por
  *    EventManager::push(Event*), desde hilos de Infra; el número de evento está
- *    en ev+4 (0x1502xxxx teclas, 0x150bxxxx palancas, 0x1503xxxx diales).
+ *    en ev+4 (0x1502xxxx teclas, 0x150bxxxx palancas, 0x1503xxxx diales). Esa
+ *    envoltura está en cxdoom.c, que avisa aquí (cxux_note_event).
  *
  * Aquí no se traga ni se cambia nada. Las envolturas son trampolines en
  * ensamblador: guardan los registros, llaman a una función que anota y devuelve
@@ -23,7 +24,6 @@
 #ifndef CX_UX_LIB
 #define CX_UX_LIB "/libObj.so"
 #endif
-#define SYM_EVPUSH "_ZN12EventManager4pushEP5Event"
 
 #define MAX_TOUCH 60
 #define MAX_KEYS  80
@@ -33,7 +33,7 @@
 #define SYM_UPDRES "_ZN2ux6gfxeng14GraphicsEngine14updateResourceEv"
 
 int cx_uxlog;
-static u32 r_push, r_updres;
+static u32 r_updres;
 static volatile int resolving;
 static int n_touch, n_keys, n_fonts;
 static volatile u32 ring[RING];
@@ -47,11 +47,10 @@ static void resolve(void)
 {
     static int tries;
     u32 base;
-    if ((r_push && r_updres) || tries >= 3) return;
+    if (r_updres || tries >= 3) return;
     if (__sync_lock_test_and_set(&resolving, 1)) return;   /* cx_lib_base usa un búfer estático */
     tries++;
     base = cx_lib_base(CX_UX_LIB);
-    r_push = cx_dlsym(base, SYM_EVPUSH);
     r_updres = cx_dlsym(base, SYM_UPDRES);
     __sync_lock_release(&resolving);
 }
@@ -104,18 +103,12 @@ u32 cxux_note_updres(void)
     return r_updres ? r_updres : (u32)nothing;
 }
 
-/* Corre en el hilo de quien manda el evento: sólo guarda el número. */
-__attribute__((used, visibility("hidden")))
-u32 cxux_note_push(u32 self, u32 ev)
+/* Corre en el hilo de quien manda el evento (la envoltura está en cxdoom.c): sólo guarda el número. */
+void cxux_note_event(u32 id)
 {
-    (void)self;
-    if (cx_uxlog && ev && !(ev & 3)) {
-        u32 id = ((const u32 *)ev)[1], top = id >> 16;
-        if (top == 0x1502 || top == 0x150b || top == 0x1503)
-            ring[__sync_fetch_and_add(&ring_w, 1) & (RING - 1)] = id;
-    }
-    if (!r_push) resolve();
-    return r_push ? r_push : (u32)nothing;
+    u32 top = id >> 16;
+    if (cx_uxlog && (top == 0x1502 || top == 0x150b || top == 0x1503))
+        ring[__sync_fetch_and_add(&ring_w, 1) & (RING - 1)] = id;
 }
 
 #define TRAMPOLINE(sym, note) __asm__( \
@@ -129,7 +122,6 @@ u32 cxux_note_push(u32 self, u32 ev)
     "    bx r12\n" \
     ".size " sym ", .-" sym "\n")
 
-TRAMPOLINE(SYM_EVPUSH, "cxux_note_push");
 TRAMPOLINE(SYM_UPDRES, "cxux_note_updres");
 
 /*

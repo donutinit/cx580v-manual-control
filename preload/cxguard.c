@@ -60,6 +60,9 @@ static void cx_init(void)
         cxmenu_start();
         cxtouch_start();
         cxpanel_start();
+        cxframe_start();
+        cxdoom_start();
+        cxsound_start();
 #ifdef CX_UX
         cxux_start();
 #endif

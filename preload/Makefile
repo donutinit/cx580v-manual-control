@@ -6,8 +6,8 @@ ARCH    = -march=armv6 -marm -mfloat-abi=soft
 CFLAGS  = $(ARCH) -Os -fPIC -Wall -Wextra -ffreestanding -fno-stack-protector -fno-builtin
 LDFLAGS = -shared -nostdlib -nostartfiles -Wl,--hash-style=both -Wl,-s -Wl,-z,norelro -Wl,-T,cxg.ld \
           -Wl,-soname,cxg.so -Wl,--build-id=none
-SRC     = cxguard.c cxinh.c cxdl.c cxlog.c cxview.c cxobj.c cxtext.c cxmenu.c cxtouch.c cxpanel.c
-HDR     = cx.h cxg.ld
+SRC     = cxguard.c cxinh.c cxdl.c cxlog.c cxview.c cxobj.c cxtext.c cxmenu.c cxtouch.c cxpanel.c cxframe.c cxdoom.c cxsound.c
+HDR     = cx.h cxg.ld cxd.h
 # Rutas del host para la variante de prueba (QEMU no traduce archivos nuevos).
 TEST_DIR ?= /tmp/cxtest
 
@@ -30,12 +30,15 @@ cxg-test.so: $(SRC) cxux.c $(HDR)
 	  -DCX_APP_NAME='"cxtest"' -DCX_VIEW_LIB='"/libcxt.so"' -DCX_OBJ_LIB='"/libcxt.so"' -DCX_INH_LIB='"/libcxt.so"' -DCX_TEXT_LIB='"/libcxt.so"' \
 	  -DCX_T1=1 -DCX_T2=2 -DCX_FLUSH_SECS=1 \
 	  -DCX_PEND_MS=0 -DCX_FIX_SETTLE_MS=0 -DCX_FIX_WAIT_MS=1000 \
-	  -DCX_UX -DCX_UX_LIB='"/libcxt.so"' -DCX_TOUCH_LIB='"/libcxt.so"' -DCX_PANEL_LIB='"/libcxt.so"' -DCX_VIEWBASE_LIB='"/libcxt.so"' \
+	  -DCX_UX -DCX_UX_LIB='"/libcxt.so"' -DCX_TOUCH_LIB='"/libcxt.so"' -DCX_PANEL_LIB='"/libcxt.so"' -DCX_FRAME_LIB='"/libcxt.so"' \
+	  -DCX_SOUND_LIB='"/libcxt.so"' -DCX_DOOM_LIB='"/libcxt.so"' -DCX_DOOM_DIR='"$(TEST_DIR)"' -DCX_DOOM_CLOSE_MS=40 -DCX_PROBE_FILE='"$(TEST_DIR)/DOOM1.WAD"' \
 	  -DCX_MENU_LIB='"/libcxt.so"' -DCX_MENU_VIEW_LIB='"/cxtest"' -o $@ $(SRC) cxux.c
 
 # Hace de libObj.so en la prueba.
+# Importa fopen y compañía de la libc de la cámara (SYSROOT/lib), como libObj.so.
 test/libcxt.so: test/libcxt.c
-	$(CC) $(ARCH) -Os -fPIC -nostdlib -shared -Wl,-soname,libcxt.so -Wl,--hash-style=both -o $@ $<
+	$(CC) $(ARCH) -Os -fPIC -nostdlib -shared -Wl,-soname,libcxt.so -Wl,--hash-style=both -o $@ $< \
+	  -L$(SYSROOT)/lib -l:libsonyc.so
 
 # Programa de prueba: enlaza la libMWF.so de la cámara (SYSROOT/usr/lib) y libcxt.so.
 # Su tabla de menú falsa va en .cxmenu, a 0xc347c de la base, como la de Camera/Mic

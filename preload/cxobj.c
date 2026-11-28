@@ -347,6 +347,28 @@ static u32 inject_x(u32 obj, u32 mid, const struct iparam *p, int n, int via_ui)
     return r;
 }
 
+/* Un pitido del sistema: lo mismo que ActionBeepPlayStart (model/BEEP), sin relevo. */
+u32 cxobj_beep(u32 obj, u32 id)
+{
+    static const u32 pid[3] = { 0x1000, 0x1001, 0x1002 };
+    u32 msg[4] __attribute__((aligned(8)));
+    u32 prm[4] __attribute__((aligned(8)));
+    u32 r, i;
+    int k;
+    if (!obj || !r_async || !resolve_mwf()) return 0xffffffffu;
+    for (i = 0; i < 4; i++) msg[i] = 0;
+    ((void (*)(u32, u32, u32))mwf[F_MSG_CTOR])((u32)msg, 0x3410, 0x1120);   /* START_SYSTEMSOUND_CMD */
+    for (k = 0; k < 3; k++) {
+        for (i = 0; i < 4; i++) prm[i] = 0;
+        ((void (*)(u32, u32))mwf[F_UINT_CTOR])((u32)prm, k ? 0 : id);
+        ((void (*)(u32, u32, u32))mwf[F_ADD])((u32)msg, pid[k], (u32)prm);
+        ((void (*)(u32))mwf[F_UINT_DTOR])((u32)prm);
+    }
+    r = ((fn2_t)r_async)(obj, (u32)msg);
+    ((void (*)(u32))mwf[F_MSG_DTOR])((u32)msg);
+    return r;
+}
+
 static u32 inject_n(u32 obj, u32 mid, const struct iparam *p, int n)
 {
     return inject_x(obj, mid, p, n, 0);
@@ -808,6 +830,7 @@ u32 cxw_async(u32 obj, u32 msg)
         int gain_db = -1;
         int expo_turn = 0, expo_delta = 0;
         if (msg_ids(msg, &cat, &mid) && cat == CAT_CAMERA) camera_obj = obj;
+        if (cx_sound && msg_ids(msg, &cat, &mid) && cat == 0x3410) cxsound_note(obj, cat, mid);
         /* El balance que pide la interfaz (el menú de fábrica, o el arranque con SET_INIT). */
         if (msg_ids(msg, &cat, &mid) && cat == CAT_CAMERA && (mid == MSG_SET_WB_MODE || mid == MSG_SET_INIT)) {
             u32 *w = find_param(msg, P_WB_MODE);

@@ -54,7 +54,10 @@ u32 cxtouch_note_move(u32 ws, u32 mouse, u32 x, u32 y)
     if (cx_uxlog && cx_log_enabled()) cxux_flush();   /* los botones que anotaron otros hilos */
 #endif
     cxpanel_hook(4);
-    if (captured) return (u32)nothing;
+    if (captured) {
+        if (cxdoom_active()) cxdoom_touch(2, last_x, last_y);
+        return (u32)nothing;
+    }
     return r_move ? r_move : (u32)nothing;
 }
 
@@ -69,6 +72,11 @@ u32 cxtouch_note_press(u32 ws, u32 mouse, u32 button, u32 t)
     (void)mouse; (void)button;
 #endif
     captured = 0;                    /* un Press con otro pendiente: se perdió un Release */
+    if (cxdoom_active()) {           /* con el juego en pantalla, todo el tacto es suyo */
+        cxdoom_touch(1, last_x, last_y);
+        captured = 1;
+        return (u32)nothing;
+    }
     if (cxpanel_press(last_x, last_y)) {
         captured = 1;
         return (u32)nothing;
@@ -88,6 +96,7 @@ u32 cxtouch_note_release(u32 ws, u32 mouse, u32 button, u32 t)
 #endif
     if (captured) {
         captured = 0;
+        cxdoom_touch(0, 0, 0);
         cxpanel_hook(4);
         return (u32)nothing;
     }

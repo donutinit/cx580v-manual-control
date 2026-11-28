@@ -99,7 +99,7 @@ u32 cx_dlsym(u32 base, const char *name)
     const u8 *eh = (const u8 *)base;
     u32 phoff, i, h, idx;
     u16 phnum;
-    const u32 *dyn = 0, *hash = 0, *bucket, *chain;
+    const u32 *dyn = 0, *hash = 0, *gnu = 0, *bucket, *chain;
     const u8 *symtab = 0;
     const char *strtab = 0;
 
@@ -114,10 +114,31 @@ u32 cx_dlsym(u32 base, const char *name)
     for (; dyn[0]; dyn += 2) {
         u32 v = dyn[1] < base ? dyn[1] + base : dyn[1];   /* sin reubicar o reubicado */
         if (dyn[0] == 4) hash = (const u32 *)v;           /* DT_HASH */
+        else if (dyn[0] == 0x6ffffef5) gnu = (const u32 *)v;   /* DT_GNU_HASH */
         else if (dyn[0] == 5) strtab = (const char *)v;   /* DT_STRTAB */
         else if (dyn[0] == 6) symtab = (const u8 *)v;     /* DT_SYMTAB */
     }
-    if (!hash || !strtab || !symtab || !hash[0]) return 0;
+    if (!strtab || !symtab) return 0;
+    if (!hash && gnu && gnu[0]) {
+        /* Sólo tabla GNU (la libc de la cámara): cubetas tras el filtro de Bloom,
+         * cadenas desde symoffset; el bit 0 marca el fin de cada cadena. */
+        u32 nb = gnu[0], off = gnu[1], gh = 5381;
+        const char *p;
+        bucket = gnu + 4 + gnu[2];
+        chain = bucket + nb;
+        for (p = name; *p; p++) gh = gh * 33 + (u8)*p;
+        idx = bucket[umod(gh, nb)];
+        if (idx < off) return 0;
+        for (;; idx++) {
+            u32 c = chain[idx - off];
+            const u8 *s = symtab + 16 * idx;
+            if ((c | 1) == (gh | 1) && *(const u16 *)(s + 14) && *(const u32 *)(s + 4) &&
+                streq(strtab + *(const u32 *)s, name))
+                return base + *(const u32 *)(s + 4);
+            if (c & 1) return 0;
+        }
+    }
+    if (!hash || !hash[0]) return 0;
     bucket = hash + 2;
     chain = bucket + hash[0];
     h = umod(elf_hash(name), hash[0]);
@@ -126,6 +147,45 @@ u32 cx_dlsym(u32 base, const char *name)
         u32 st_name = *(const u32 *)s, st_value = *(const u32 *)(s + 4);
         u16 shndx = *(const u16 *)(s + 14);
         if (shndx && st_value && streq(strtab + st_name, name)) return base + st_value;
+    }
+    return 0;
+}
+
+/*
+ * La entrada de la tabla de saltos (GOT) por la que la biblioteca cargada en
+ * base llama a la función `name` de otra biblioteca (reubicación
+ * R_ARM_JUMP_SLOT de su .rel.plt), o 0. Escribir ahí desvía sólo las llamadas
+ * de esa biblioteca.
+ */
+u32 *cx_got_slot(u32 base, const char *name)
+{
+    const u8 *eh = (const u8 *)base;
+    u32 phoff, i, rel = 0, relsz = 0;
+    u16 phnum;
+    const u32 *dyn = 0;
+    const u8 *symtab = 0;
+    const char *strtab = 0;
+
+    if (!base || eh[0] != 0x7f || eh[1] != 'E' || eh[2] != 'L' || eh[3] != 'F') return 0;
+    phoff = *(const u32 *)(eh + 0x1c);
+    phnum = *(const u16 *)(eh + 0x2c);
+    for (i = 0; i < phnum; i++) {
+        const u32 *ph = (const u32 *)(eh + phoff + 32 * i);
+        if (ph[0] == 2 /* PT_DYNAMIC */) dyn = (const u32 *)(base + ph[2]);
+    }
+    if (!dyn) return 0;
+    for (; dyn[0]; dyn += 2) {
+        u32 v = dyn[1] < base ? dyn[1] + base : dyn[1];
+        if (dyn[0] == 5) strtab = (const char *)v;        /* DT_STRTAB */
+        else if (dyn[0] == 6) symtab = (const u8 *)v;     /* DT_SYMTAB */
+        else if (dyn[0] == 23) rel = v;                   /* DT_JMPREL */
+        else if (dyn[0] == 2) relsz = dyn[1];             /* DT_PLTRELSZ */
+    }
+    if (!strtab || !symtab || !rel) return 0;
+    for (i = 0; i + 8 <= relsz; i += 8) {
+        const u32 *r = (const u32 *)(rel + i);
+        if ((r[1] & 0xff) != 22 /* R_ARM_JUMP_SLOT */) continue;
+        if (streq(strtab + *(const u32 *)(symtab + 16 * (r[1] >> 8)), name)) return (u32 *)(base + r[0]);
     }
     return 0;
 }

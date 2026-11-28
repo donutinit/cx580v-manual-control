@@ -23,6 +23,7 @@ extern u32 cxt_args[5][6];
 extern u32 cxt_info_value, cxt_exec_value;
 extern u32 cxt_obj[2][4];
 extern u32 cxt_seen[16][9];
+u32 o_evpush(u32 self, u32 ev) __asm__("_ZN12EventManager4pushEP5Event");
 extern u32 cxt_async_ret, cxt_sync_seen[4], cxt_check_feature, cxt_inh_blocked[4];
 extern u32 cxt_text[2][3];
 extern u32 cxt_image[4];
@@ -32,6 +33,8 @@ extern u32 cxt_lab[8][10], cxt_labfont[8][5], cxt_nlab, cxt_sibling, cxt_drawn, 
 extern char cxt_labtext[8][20];
 extern u32 cxt_tree[6], cxt_rootpath, cxt_rootnode[2];
 extern u32 cxt_views[4];
+extern u32 cxt_frame[12];
+extern unsigned short cxt_pix[328 * 200];
 u32 vb_ctor(u32 self, u32 mgr) __asm__("_ZN8ViewBaseC2EP11ViewManager");
 u32 vb_dtor(u32 self) __asm__("_ZN8ViewBaseD2Ev");
 u32 ge_updres(u32 self) __asm__("_ZN2ux6gfxeng14GraphicsEngine14updateResourceEv");
@@ -777,6 +780,238 @@ static void panelwb_tests(void)
     say(ok ? "cxtest: wb TODO OK\n" : "cxtest: wb FALLA\n");
 }
 
+/* cxmode.txt = "panel 2\nprobe 1": sonda de memoria y cuadro de prueba. */
+static void probe_tests(void)
+{
+    int ok = 1, i;
+    u32 locks;
+    cxt_rootpath = 1;
+    panel_tree();
+    v_open(0x5555, "view/MOV_REC", 0);
+    ok &= check("sonda: sin tocar la esquina no se crea nada", cxt_frame[0] == 0);
+    tap(600, 40);                        /* esquina de arriba a la derecha */
+    ok &= check("sonda: crea el icono de 480x480 y una imagen de 320x200 en el formato del OSD",
+                cxt_frame[0] != 0 && cxt_frame[1] == (480u << 16) && cxt_frame[2] == (480u << 16) && cxt_frame[3] == 0x41006);
+    ok &= check("sonda: un rectángulo, escalado de 320 a 480, con la imagen puesta en el sprite",
+                cxt_frame[7] == 1 && cxt_frame[8] == (480u << 16) && cxt_frame[9] == (320u << 16) && cxt_frame[4] >= 1);
+    ok &= check("sonda: las ocho franjas, respetando los píxeles de relleno de cada fila",
+                cxt_pix[0] == 0xF00F && cxt_pix[39] == 0xF00F && cxt_pix[40] == 0x0F0F && cxt_pix[319] == 0xF0F0 &&
+                cxt_pix[320] == 0 && cxt_pix[328] == 0xF00F && cxt_pix[328 * 199 + 319] == 0xF0F0);
+    ok &= check("sonda: la barra blanca está en la fila 80 y no en la 79",
+                (cxt_pix[328 * 80] == 0xFFFF || cxt_pix[328 * 80 + 4] == 0xFFFF || cxt_pix[328 * 80 + 8] == 0xFFFF) &&
+                cxt_pix[328 * 79] == 0xF00F && cxt_pix[328 * 79 + 4] == 0xF00F);
+    locks = cxt_frame[6];
+    for (i = 0; i < 4; i++) { cx_sleep_ms(40); ws_move(0x9001, 0, 2000, 2000, 0); }
+    ok &= check("sonda: cada 33 ms pinta otro cuadro y avisa al sprite", cxt_frame[6] >= locks + 3 && cxt_frame[5] >= 4 &&
+                cxt_pix[328 * 80] == 0xF00F);
+    tap(600, 40);
+    locks = cxt_frame[6];
+    cx_sleep_ms(40);
+    ws_move(0x9001, 0, 2000, 2000, 0);
+    ok &= check("sonda: otro toque lo quita y deja de pintar", cxt_frame[6] == locks);
+    say(ok ? "cxtest: sonda TODO OK\n" : "cxtest: sonda FALLA\n");
+}
+
+/*
+ * cxmode.txt = "panel 2\ndoom 2\ndoomview view/USB_OTDISC", con CXDOOM.BIN y
+ * DOOM1.WAD en el directorio de prueba: DOOM de verdad, lanzado desde el menú.
+ */
+static int str_is(u32 p, const char *t)
+{
+    const char *s = (const char *)p;
+    if (!s) return 0;
+    for (; *t; s++, t++)
+        if (*s != *t) return 0;
+    return !*s;
+}
+
+static void doom_turns(int n, int ms)
+{
+    while (n--) { cx_sleep_ms(ms); ws_move(0x9001, 0, 2000, 2000, 0); }
+}
+
+extern u32 cxt_seen[16][9];
+u32 o_evpush(u32 self, u32 ev) __asm__("_ZN12EventManager4pushEP5Event");
+int cxt_readsound(const char *path, unsigned char *buf, int max);
+
+/* Con doomsound 1 y doommusic 1: los pitidos que manda el juego y lo que entrega su lectura. */
+static const u32 rot_id[11] = { 0x12, 0x13, 0x14, 0x1e, 0x1f, 0x20, 0x21, 0x19, 0x25, 0x0d, 0x00 };
+static const char *const rot_file[11] = {
+    "/usr/share/avsystemsound/Cam_Jet_Touch.bin", "/usr/share/avsystemsound/Cam_Jet_Sent.bin",
+    "/usr/share/avsystemsound/Cam_Jet_Error.bin", "/usr/share/avsystemsound/Cam_Event_Anime_1line.bin",
+    "/usr/share/avsystemsound/Cam_Event_Anime_2line.bin", "/usr/share/avsystemsound/Cam_Event_Anime_3line.bin",
+    "/usr/share/avsystemsound/Cam_Event_Anime_4line.bin", "/usr/share/avsystemsound/Cam_Media_Chg.bin",
+    "/usr/share/avsystemsound/Cam_HoldEnter.bin", "/usr/share/avsystemsound/Cam_SelfTimer.bin",
+    "/usr/share/avsystemsound/Cam_StartUp.bin" };
+
+/* Espera el siguiente pitido que mande el juego y devuelve su archivo, o 0. */
+static const char *next_beep(void)
+{
+    u32 start = cxt_obj[0][3];
+    int i, k;
+    for (i = 0; i < 60; i++) {
+        doom_turns(1, 30);
+        if (cxt_obj[0][3] != start) {
+            u32 *e = cxt_seen[(cxt_obj[0][3] - 1) & 15];
+            if (e[0] == 0x3410 && e[1] == 0x1120 && e[3] == 0x1000)
+                for (k = 0; k < 11; k++)
+                    if (e[4] == rot_id[k]) return rot_file[k];
+            start = cxt_obj[0][3];
+        }
+    }
+    return 0;
+}
+
+static int sound_checks(void)
+{
+    static unsigned char buf[70000];
+    const char *f;
+    int ok = 1, got, b, hdr_ok = 1;
+    f = next_beep();
+    ok &= check("sonido: el juego manda pitidos al objeto de los pitidos", f != 0 && cxt_obj[0][0] == 0x5151);
+    got = f ? cxt_readsound(f, buf, 0x70817) : -1;
+    for (b = 0; b < got; b += 32) if (buf[b] > 8) hdr_ok = 0;
+    ok &= check("sonido: al leer el pitido llega lo del juego, en bloques de 32 bytes con escala de 0 a 8",
+                got > 1000 && got <= 36480 && !(got & 31) && hdr_ok);
+    f = next_beep();
+    got = f ? cxt_readsound(f, buf, 20000) : -1;
+    ok &= check("sonido: con un búfer más chico que los datos, la lectura termina (no se traba)", got > 0 && got < 20000);
+    f = next_beep();
+    got = f ? cxt_readsound(f, buf, 8192) : -1;
+    ok &= check("sonido: también si el búfer acaba justo en un múltiplo de 128", got > 0 && got <= 8193);
+    got = cxt_readsound("/usr/share/avsystemsound/Cam_Tap.bin", buf, 0x70817);
+    ok &= check("sonido: los demás pitidos se leen de su archivo", got == 7424 && buf[0] == 23);
+    f = next_beep();
+    got = f ? cxt_readsound(f, buf, 0x70817) : -1;
+    ok &= check("sonido: después, lo entregado ya cabe en el búfer más chico", got > 0 && got <= 8192);
+    return ok;
+}
+
+static void doom_tests(void)
+{
+    static u32 ev[2];
+    int ok = 1, i;
+    u32 opens, closes, n, locks, r;
+    long fd;
+    cxt_rootpath = 1;
+    panel_tree();
+    cxt_async_ret = 0;                               /* la cámara acepta los pitidos con 0 */
+    {   /* un pitido de fábrica: de ahí sale el objeto al que se mandan */
+        u32 m[4] __attribute__((aligned(8)));
+        mwf_msg_ctor(m, 0x3410, 0x1120);
+        o_async(0x5151, (u32)m);
+        mwf_msg_dtor(m);
+    }
+    v_open(0x5555, "view/MOV_REC", 0);
+    ws_move(0x9001, 0, 2000, 2000, 0);
+    /* La pantalla de conexión USB tiene un botón que abre la misma vista: ése pasa. */
+    v_open(0x5555, "view/USB_LAUNCHER", 0);
+    opens = cxt_args[0][5];
+    r = v_open(0x7003, "view/USB_OTDISC", 0);
+    ok &= check("doom: fuera del menú, la pantalla de Disc Burn se abre como siempre", cxt_args[0][5] == opens + 1 && r == 0x0e11);
+    v_close(0x7003, "view/USB_OTDISC");
+    v_close(0x5555, "view/USB_LAUNCHER");
+    v_open(0x5555, "view/GLOBAL_MENU", 1);
+    v_open(0x7001, "view/SETUP_MENU", 1);            /* lo abre el menú principal, que es 0x7001 */
+    opens = cxt_args[0][5];
+    closes = cxt_args[1][5];
+    r = v_open(0x7002, "view/USB_OTDISC", 0);        /* el ítem «DOOM», desde el submenú (0x7002) */
+    ok &= check("doom: la pantalla del ítem de menú no se abre", cxt_args[0][5] == opens && r == 0);
+    ok &= check("doom: el submenú se cierra a sí mismo", cxt_args[1][5] == closes + 1 && cxt_args[1][0] == 0x7002 &&
+                str_is(cxt_args[1][1], "view/SETUP_MENU"));
+    ok &= check("doom: el cuadro se crea al tocar el ítem, encima y transparente",
+                cxt_frame[0] != 0 && cxt_frame[11] == 0 && cxt_pix[0] == 0 && cxt_pix[328 * 199 + 319] == 0);
+    doom_turns(2, 60);
+    ok &= check("doom: en un turno posterior se cierra el menú principal", cxt_args[1][5] == closes + 2 &&
+                cxt_args[1][0] == 0x7001 && str_is(cxt_args[1][1], "view/GLOBAL_MENU"));
+    for (i = 0; i < 30 && cxt_pix[0] == 0; i++) doom_turns(1, 40);   /* arranca 300 ms después de verse la pantalla */
+    ok &= check("doom: arranca sobre la pantalla de grabación, con su cuadro de 320x200",
+                cxt_frame[0] != 0 && cxt_frame[3] == 0x41006 && cxt_frame[8] == (480u << 16));
+    ok &= check("doom: mientras carga se ven las franjas", cxt_pix[0] == 0xF00F && cxt_pix[220] == 0xF000);
+    for (i = 0; i < 150 && cxt_frame[6] < 20; i++) doom_turns(1, 30);
+    /* Donde las franjas eran transparentes (x de 200 a 239), el juego pinta opaco. */
+    ok &= check("doom: el juego pinta cuadros opacos", cxt_frame[6] >= 20 && (cxt_pix[0] & 0xf) == 0xf &&
+                (cxt_pix[328 * 100 + 220] & 0xf) == 0xf && (cxt_pix[328 * 100 + 160] & 0xf) == 0xf);
+    ok &= check("doom: no escribe fuera de las 320 columnas", cxt_pix[320] == 0 && cxt_pix[327] == 0 && cxt_pix[328 * 199 + 327] == 0);
+    n = cxt_frame[10];
+    cxt_frame[11] = 0x7777;                          /* la interfaz creó algo después: quedó encima */
+    doom_turns(2, 30);
+    ok &= check("doom: si algo nuevo lo tapa, el cuadro vuelve al frente", cxt_frame[10] == n + 1 && cxt_frame[11] == 0);
+    n = cxt_push[2];
+    ev[1] = 0x15020052; em_push(0x9002, (u32)ev);    /* START/STOP: abre puertas, no graba */
+    ev[1] = 0x15020051; em_push(0x9002, (u32)ev);
+    ev[1] = 0x150b0033; em_push(0x9002, (u32)ev);    /* palanca hacia W: baja a «Options» en el menú del juego */
+    ev[1] = 0x150b0031; em_push(0x9002, (u32)ev);
+    ok &= check("doom: START/STOP y la palanca de zoom no le llegan a la cámara", cxt_push[2] == n);
+    ev[1] = 0x15020042; em_push(0x9002, (u32)ev);    /* PHOTO a fondo: cambia la tasa de los pitidos */
+    ev[1] = 0x15020041; em_push(0x9002, (u32)ev);
+    doom_turns(2, 30);
+    ok &= check("doom: PHOTO a fondo tampoco le llega a la cámara", cxt_push[2] == n);
+    ev[1] = 0x15020012; em_push(0x9002, (u32)ev);    /* encendido */
+    ev[1] = 0x150b0013; em_push(0x9002, (u32)ev);    /* cerrar la pantalla */
+    ok &= check("doom: el botón de encendido y la pantalla sí", cxt_push[2] == n + 2);
+    n = cxt_mouse[1][5];
+    tap(100, 240);
+    tap(320, 240);
+    ok &= check("doom: el tacto es del juego", cxt_mouse[1][5] == n && cxt_mouse[2][5] == n);
+    ok &= check("doom: el panel se quita mientras tanto", cxt_lab[1][6] == 3);
+    ok &= sound_checks();                            /* abrir el menú del juego suena */
+    doom_turns(30, 30);
+    fd = cx_open("cxdoom-frame.raw", O_WRONLY | O_CREAT, 0644);
+    if (fd >= 0) { cx_write(fd, cxt_pix, sizeof(cxt_pix)); cx_close(fd); }
+    n = cxt_push[2];
+    ev[1] = 0x15020092; em_push(0x9002, (u32)ev);    /* MODE: sale */
+    doom_turns(2, 40);
+    ev[1] = 0x15020091; em_push(0x9002, (u32)ev);
+    ok &= check("doom: MODE sale del juego sin llegarle a la cámara", cxt_push[2] == n);
+    ok &= check("doom: al salir el cuadro queda transparente", cxt_pix[0] == 0 && cxt_pix[328 * 100 + 160] == 0);
+    locks = cxt_frame[6];
+    doom_turns(3, 40);
+    ok &= check("doom: fuera del juego no se pinta más y vuelve el panel", cxt_frame[6] == locks && cxt_lab[1][6] == 0);
+    ev[1] = 0x15020092; em_push(0x9002, (u32)ev);
+    ok &= check("doom: y MODE vuelve a ser de la cámara", cxt_push[2] == n + 1);
+    n = cxt_mouse[1][5];
+    tap(300, 200);
+    ok &= check("doom: el tacto vuelve a la interfaz", cxt_mouse[1][5] == n + 1);
+    tap(600, 40);                                    /* doom 2: también desde la esquina */
+    doom_turns(20, 40);
+    ok &= check("doom: desde la esquina sigue donde estaba", cxt_frame[6] > locks);
+    /* «Quit Game» desde el menú del juego: dos veces hacia T sube de Options a Quit, Enter y «y». */
+    for (i = 0; i < 2; i++) {
+        ev[1] = 0x150b0032; em_push(0x9002, (u32)ev);
+        doom_turns(3, 30);
+        ev[1] = 0x150b0031; em_push(0x9002, (u32)ev);
+        doom_turns(3, 30);
+    }
+    tap(320, 100);
+    doom_turns(30, 30);
+    locks = cxt_frame[6];
+    doom_turns(3, 40);
+    ok &= check("doom: «Quit Game» termina el juego y devuelve la cámara", cxt_frame[6] == locks && cxt_lab[1][6] == 0);
+    tap(600, 40);
+    for (i = 0; i < 150 && cxt_frame[6] <= locks + 4; i++) doom_turns(1, 30);
+    ok &= check("doom: después de salir se puede cargar otra vez", cxt_frame[6] > locks + 4);
+    cxt_async_ret = 0xa5;
+    say(ok ? "cxtest: doom TODO OK\n" : "cxtest: doom FALLA\n");
+}
+
+/* cxmode.txt = "panel 2\ndoom 2\ndoompanel 1": el panel sigue activo un segundo debajo del juego. */
+static void doompanel_tests(void)
+{
+    int ok = 1, i;
+    cxt_rootpath = 1;
+    panel_tree();
+    v_open(0x5555, "view/MOV_REC", 0);
+    ws_move(0x9001, 0, 2000, 2000, 0);
+    tap(600, 40);
+    ok &= check("doompanel: arranca desde la esquina con el panel todavía activo", cxt_frame[0] != 0 && cxt_lab[1][6] == 0);
+    for (i = 0; i < 10; i++) doom_turns(1, 40);
+    ok &= check("doompanel: medio segundo después el panel sigue", cxt_lab[1][6] == 0);
+    for (i = 0; i < 30; i++) doom_turns(1, 40);
+    ok &= check("doompanel: pasado el segundo, el panel se oculta solo", cxt_lab[1][6] == 3);
+    say(ok ? "cxtest: doompanel TODO OK\n" : "cxtest: doompanel FALLA\n");
+}
+
 /* cxmode.txt = "panel 2\nkeepbox 450 410 90 40": de la pantalla sólo queda lo que toca esa caja. */
 static void panelkeep_tests(void)
 {
@@ -1115,6 +1350,9 @@ void _start(void)
     if (has_arg(buf, n, "nomenu")) menu_tests(0);
     if (has_arg(buf, n, "panelroot")) { cxt_rootpath = 1; panel_tests(1); }
     if (has_arg(buf, n, "panelkeep")) panelkeep_tests();
+    if (has_arg(buf, n, "probe")) probe_tests();
+    if (has_arg(buf, n, "doompanel")) doompanel_tests();
+    else if (has_arg(buf, n, "doom")) doom_tests();
     if (has_arg(buf, n, "panelwb")) panelwb_tests();
     if (has_arg(buf, n, "panel")) panel_tests(1);
     if (has_arg(buf, n, "nopanel")) panel_tests(0);

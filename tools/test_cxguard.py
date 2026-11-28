@@ -83,7 +83,7 @@ class InstallTest(unittest.TestCase):
 
     def test_shipped_configs_are_valid(self):
         here = os.path.dirname(os.path.abspath(__file__))
-        for name in ('cxmode-v9.txt', 'cxmode-v12.txt', 'cxmode-v13.txt', 'cxmode-v14.txt', 'cxmode-v15.txt', 'cxmode-v15b.txt', 'cxmode-v16.txt', 'cxmode-v18.txt', 'cxmode-v18b.txt', 'cxmode-v18c.txt', 'cxmode-v18d.txt', 'cxmode-v19u.txt', 'cxmode-v19k.txt', 'cxmode-v20.txt', 'cxmode-v21p.txt', 'cxmode-v23p.txt', 'cxmode-v24p.txt', 'cxmode-v25p.txt', 'cxmode-v26p.txt', 'cxmode-v28p.txt',
+        for name in ('cxmode-v9.txt', 'cxmode-v12.txt', 'cxmode-v13.txt', 'cxmode-v14.txt', 'cxmode-v15.txt', 'cxmode-v15b.txt', 'cxmode-v16.txt', 'cxmode-v18.txt', 'cxmode-v18b.txt', 'cxmode-v18c.txt', 'cxmode-v18d.txt', 'cxmode-v19u.txt', 'cxmode-v19k.txt', 'cxmode-v20.txt', 'cxmode-v21p.txt', 'cxmode-v23p.txt', 'cxmode-v24p.txt', 'cxmode-v25p.txt', 'cxmode-v26p.txt', 'cxmode-v28p.txt', 'cxmode-v31p.txt', 'cxmode-v32p.txt', 'cxmode-v33p.txt', 'cxmode-v34p.txt', 'cxmode-v35p.txt', 'cxmode-v36p.txt', 'cxmode-v37p.txt', 'cxmode-v38p.txt', 'cxmode-v39p.txt', 'cxmode-v40p.txt', 'cxmode-v42p.txt', 'cxmode-v43p.txt', 'cxmode-v45p.txt', 'cxmode-v46p.txt',
                      'cxmode-v18r.txt', 'cxmode-v18u.txt'):
             with open(os.path.join(here, '..', 'preload', name)) as f:
                 text = f.read()
@@ -158,6 +158,23 @@ class InstallTest(unittest.TestCase):
 
     def test_fresh_install_counts_dumps(self):
         self.assertEqual(cxguard.clusters_to_add(FakeFS(stock()), library(size=16036)), 1 + 1 + 1 + 3)
+
+    def test_known_installed_library_counts_with_its_real_size(self):
+        old, new = library(size=3 * 16384 - 100), library(size=4 * 16384 - 100)
+        files = dict(stock())
+        files[cxguard.SO_PATH] = old
+        files[cxguard.ENV_PATH] = cxguard.ENV_CONTENT
+        fs = FakeFS(files)
+        # Unknown library on the camera: assumed to take one cluster.
+        self.assertEqual(cxguard.clusters_to_add(fs, new), 4 - 1 + 1 + 3)
+        cxguard.KNOWN_LIBRARIES[cxguard.md5(old)] = len(old)
+        try:
+            # Recognised: three of the four clusters are already taken by it.
+            self.assertEqual(cxguard.clusters_to_add(fs, new), 4 - 3 + 1 + 3)
+            self.assertEqual(cxguard.installed_clusters(fs), 3)
+        finally:
+            cxguard.KNOWN_LIBRARIES.clear()
+        self.assertEqual(cxguard.installed_clusters(FakeFS(stock())), 0)
 
     def test_v5b_upgrade_fits_after_moving_dumps(self):
         # The camera on 2026-11-26 18:18: v5 installed, dumps just moved off, 384 KiB free.

@@ -84,6 +84,37 @@ def check_config(text):
             pass
         elif len(w) == 2 and w[0] == 'panel' and w[1] in ('0', '1', '2'):
             pass
+        elif len(w) == 2 and w[0] == 'probe' and w[1] in ('0', '1', '2', '3'):
+            pass
+        elif len(w) == 2 and w[0] == 'doom' and w[1] in ('0', '1', '2'):
+            pass
+        elif len(w) == 2 and w[0] == 'doomms' and w[1].isdigit() and int(w[1]) <= 500:
+            pass
+        elif len(w) == 2 and w[0] == 'doompanel' and w[1].isdigit() and int(w[1]) <= 600:
+            pass
+        elif len(w) == 2 and w[0] == 'doomsound' and w[1] in ('0', '1'):
+            pass
+        elif len(w) == 2 and w[0] == 'soundtest' and w[1] in ('0', '1'):
+            pass
+        elif len(w) == 2 and w[0] == 'doommusic' and w[1] in ('0', '1'):
+            pass
+        elif len(w) == 2 and w[0] == 'doomchunk' and w[1].isdigit() and 100 <= int(w[1]) <= 4000:
+            pass
+        elif len(w) == 2 and w[0] == 'doomlead' and w[1].isdigit() and int(w[1]) <= 8000:
+            pass
+        elif len(w) == 2 and w[0] == 'doomrate' and w[1].isdigit() and 8000 <= int(w[1]) <= 48000:
+            pass
+        elif len(w) == 2 and w[0] == 'doomhz' and w[1].isdigit() and 8000 <= int(w[1]) <= 96000:
+            pass
+        elif len(w) == 2 and w[0] == 'doomvol' and w[1] in tuple('12345678'):
+            pass
+        elif len(w) == 2 and w[0] == 'doomview' and w[1].startswith('view/') and len(w[1]) < 40:
+            pass
+        elif len(w) == 2 and w[0] == 'doommb' and w[1].isdigit() and 3 <= int(w[1]) <= 12:
+            pass
+        elif len(w) == 5 and w[0] == 'doompix' and all(x.isdigit() and int(x) <= 12 for x in w[1:4]) \
+                and 1 <= len(w[4]) <= 4 and all(c in '0123456789abcdefABCDEF' for c in w[4]):
+            pass
         elif len(w) == 2 and w[0] == 'panelwb' and w[1] in ('0', '1', '2'):
             pass
         elif len(w) == 6 and w[0] == 'panelz' and w[1] in tuple('0123456') and all(x.isdigit() for x in w[2:]) \
@@ -163,7 +194,7 @@ CLUSTER = 16384
 #: Free space kept above FSCK_THRESHOLD after our files and the library's dumps
 #: (inhibit table, 16 KiB at most; UI log, 48 KiB) are written.
 MARGIN = 64 * 1024
-MAX_SO_SIZE = 64 * 1024
+MAX_SO_SIZE = 5 * CLUSTER          # el espacio libre se calcula aparte, con exactitud
 
 EM_ARM = 40
 ET_DYN = 3
@@ -243,13 +274,31 @@ def clusters(nbytes):
     return (nbytes + CLUSTER - 1) // CLUSTER
 
 
+#: Size in bytes of each library we have released, by md5. cxdump.py fills it
+#: from preload/release so an installed library can be recognised.
+KNOWN_LIBRARIES = {}
+
+
+def installed_clusters(fs):
+    """Clusters the library already on the camera takes, as far as we can tell.
+
+    The camera only gives us its md5. If it matches a library we released, its
+    size is known exactly; otherwise it is assumed to take a single cluster,
+    which is the cautious answer (it makes the new one look bigger).
+    """
+    if not fs.exists(SO_PATH):
+        return 0
+    size = KNOWN_LIBRARIES.get(fs.md5(SO_PATH))
+    return clusters(size) if size else 1
+
+
 def clusters_to_add(fs, library):
     """Clusters the install and the library's dumps can still take on /setting.
 
-    Files that already exist are not counted again. An existing library is
-    assumed to take at least one cluster, which the new one reuses.
+    Files that already exist are not counted again: the new library reuses
+    the clusters of the installed one.
     """
-    n = clusters(len(library)) - (1 if fs.exists(SO_PATH) else 0)
+    n = clusters(len(library)) - installed_clusters(fs)
     n += 0 if fs.exists(ENV_PATH) else 1
     n += 0 if fs.exists(INH_PATH) else clusters(16 * 1024)   # two 8 KiB snapshots
     n += 0 if fs.exists(REQ_PATH) else clusters(48 * 1024)

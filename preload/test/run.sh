@@ -55,8 +55,9 @@ und=$(podman run --rm -v "$PRELOAD:/src:Z" cx580-toolchain arm-linux-gnueabi-rea
 [ "$und" -eq 0 ] || fail "cxg.so importa $und símbolos"; ok "cxg.so no importa símbolos"
 und=$(podman run --rm -v "$PRELOAD:/src:Z" cx580-toolchain arm-linux-gnueabi-readelf -Ws --dyn-syms cxg-ux.so | awk '$7=="UND" && $8!=""' | wc -l)
 [ "$und" -eq 0 ] || fail "cxg-ux.so importa $und símbolos"; ok "cxg-ux.so no importa símbolos"
-podman run --rm -v "$PRELOAD:/src:Z" cx580-toolchain arm-linux-gnueabi-readelf -Ws --dyn-syms cxg.so | grep -q 'EventManager\|updateResource' && fail "cxg.so no debe llevar las envolturas de botones ni de updateResource"
-ok "cxg.so lleva las envolturas del tacto y no las de botones"
+podman run --rm -v "$PRELOAD:/src:Z" cx580-toolchain arm-linux-gnueabi-readelf -Ws --dyn-syms cxg.so | grep -q 'updateResource' && fail "cxg.so no debe llevar la envoltura de updateResource"
+podman run --rm -v "$PRELOAD:/src:Z" cx580-toolchain arm-linux-gnueabi-readelf -Ws --dyn-syms cxg.so | grep -q 'EventManager' || fail "cxg.so debe llevar la envoltura de los botones"
+ok "cxg.so lleva las envolturas del tacto y de los botones, y no la de updateResource"
 
 for b in bin/busybox usr/bin/bootin.elf usr/bin/im.elf; do
     set +e; q -E LD_PRELOAD=/setting/cxg.so "$SYSROOT/$b" >/dev/null 2>&1; a=$?
@@ -286,6 +287,43 @@ printf 'panel 2\npanelwb 1\n' > "$T/cxmode.txt"; rm -f "$T/cxreq.log"
 out=$(q -E LD_PRELOAD=/setting/cxg-test.so "$SYSROOT/usr/bin/cxtest" panelwb 2>&1) || fail "cxtest panelwb falló: $out"
 echo "$out" | grep "cxtest: .*wb"
 echo "$out" | grep -q "wb TODO OK" || fail "balance de blancos en el panel"
+printf 'panel 2\nprobe 1\n' > "$T/cxmode.txt"; rm -f "$T/cxreq.log"
+out=$(q -E LD_PRELOAD=/setting/cxg-test.so "$SYSROOT/usr/bin/cxtest" probe 2>&1) || fail "cxtest probe falló: $out"
+echo "$out" | grep "cxtest: .*sonda"
+echo "$out" | grep -q "sonda TODO OK" || fail "sonda"
+grep ' PR ' "$T/cxreq.log" | cut -c1-110 | head -24
+grep -q 'PR MiB usados de 8' "$T/cxreq.log" || fail "la prueba de memoria no quedó anotada"
+grep -q 'PR creado' "$T/cxreq.log" || fail "la creación del cuadro no quedó anotada"
+grep ' PR ' "$T/cxreq.log" | grep 'codigo\|leidos\|sin archivo\|MiB usados' | cut -c1-110
+grep -q 'PR codigo cargado dio 2a ' "$T/cxreq.log" || fail "el código de prueba cargado en memoria no corrió"
+# DOOM de verdad: sólo si ya se compiló (doom/build.sh) y está el WAD shareware.
+if [ -f "$ROOT/doom/build/CXDOOM.BIN" ] && [ -f "$ROOT/vendor/doom/wad/doom1.wad" ]; then
+    cp "$ROOT/doom/build/CXDOOM.BIN" "$T/CXDOOM.BIN"; cp "$ROOT/vendor/doom/wad/doom1.wad" "$T/DOOM1.WAD"
+    printf 'panel 2\ndoom 2\ndoomview view/USB_OTDISC\ndoompanel 0\ndoomsound 1\ndoommusic 1\n' > "$T/cxmode.txt"; rm -f "$T/cxreq.log" "$SYSROOT/cxdoom-frame.raw"
+    out=$(q -E LD_PRELOAD=/setting/cxg-test.so "$SYSROOT/usr/bin/cxtest" doom 2>&1) || fail "cxtest doom falló: $out"
+    echo "$out" | grep "cxtest: .*doom\|cxtest: .*sonido"
+    echo "$out" | grep -q "doom TODO OK" || { grep ' SN ' "$T/cxreq.log" | cut -c1-120;  grep ' DM ' "$T/cxreq.log" | cut -c1-150 | sed -n '/I_InitGraphics: Auto/,$p' | head -30; fail "doom"; }
+    grep ' DM ' "$T/cxreq.log" | grep -v ' | ' | cut -c1-110 | head -12
+    grep -q 'DM init, ms 0 ' "$T/cxreq.log" || fail "el arranque del juego no quedó anotado"
+    [ "$(grep -c 'DM init, ms 0 ' "$T/cxreq.log")" -eq 2 ] || fail "el juego debió cargarse dos veces (al principio y tras Quit Game)"
+    grep -q 'DM MODE: sale del juego' "$T/cxreq.log" || fail "la salida con MODE no quedó anotada"
+    grep -q 'DM programa en 7000000 ' "$T/cxreq.log" && fail "la prueba debe cargar el programa fuera de su dirección de enlace"
+    grep -q 'DM programa en ' "$T/cxreq.log" || fail "la carga del programa no quedó anotada"
+    grep -q 'DM tasa de los pitidos' "$T/cxreq.log" && fail "PHOTO a fondo ya no debe cambiar la tasa"
+    grep ' SN ' "$T/cxreq.log" | cut -c1-110 | head -10
+    grep -q 'SN desviadas fopen y fread' "$T/cxreq.log" || fail "el desvío de fopen no quedó anotado"
+    [ -n "${CX_DOOM_PNG:-}" ] && python3 -I "$ROOT/doom/test/raw2png.py" "$CX_DOOM_PNG" "$SYSROOT/cxdoom-frame.raw"
+    # Con doompanel 1: el panel sigue un segundo y después se oculta solo.
+    printf 'panel 2\ndoom 2\ndoompanel 1\n' > "$T/cxmode.txt"; rm -f "$T/cxreq.log"
+    out=$(q -E LD_PRELOAD=/setting/cxg-test.so "$SYSROOT/usr/bin/cxtest" doompanel 2>&1) || fail "cxtest doompanel falló: $out"
+    echo "$out" | grep "cxtest: .*doompanel"
+    echo "$out" | grep -q "doompanel TODO OK" || fail "doompanel"
+    grep -q 'DM fin de la fase con panel' "$T/cxreq.log" || fail "el fin de la fase con panel no quedó anotado"
+    rm -f "$SYSROOT/cxdoom-frame.raw" "$T/CXDOOM.BIN" "$T/DOOM1.WAD"
+    ok "doom: se lanza desde el menú, pinta, toma tacto y botones y sale con MODE"
+else
+    echo "aviso: sin doom/build/CXDOOM.BIN o sin vendor/doom/wad/doom1.wad; la prueba de DOOM no corre"
+fi
 printf 'panel 2\nkeepbox 450 410 90 40\n' > "$T/cxmode.txt"; rm -f "$T/cxreq.log"
 out=$(q -E LD_PRELOAD=/setting/cxg-test.so "$SYSROOT/usr/bin/cxtest" panelkeep 2>&1) || fail "cxtest panelkeep falló: $out"
 echo "$out" | grep "cxtest: .*panel"

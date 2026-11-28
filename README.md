@@ -27,6 +27,13 @@ pantallas de la PJ760V que ya vienen en el firmware.
   Shutter Speed, Gain y White Balance Shift en el menú de fábrica, ganancia
   mostrada en dB, menú recortado y corrección del desvío de 1/3 de paso al
   cambiar entre iris y obturación.
+- Panel propio en la pantalla de grabación (iris, obturación, ganancia y
+  balance de blancos, cada uno con su automático): `docs/panel-propio.md`.
+- **DOOM** desde el menú (Setup → Connection → DOOM) o con un toque en la
+  esquina de arriba a la derecha, con controles en los botones y la pantalla,
+  efectos de sonido y música OPL («At Doom's Gate» en el título):
+  `docs/doom.md`. El juego (doomgeneric, GPL-2) va en la partición de
+  PlayMemories con el WAD shareware; el WAD no está en el repositorio.
 - Estado al día y reglas de trabajo: `AGENTS.md`.
 
 ## Preparar el entorno
@@ -189,6 +196,13 @@ Probado en esta unidad: entra, responde y regresa sola al modo normal.
   verificado con `manifest.json`. `docs/research/` investigación.
 - `firmware/cx580v-1.07/unpacked/` particiones extraídas del respaldo con fwtool.
 - `ui/menu-prototype.html` prototipo interactivo del menú propuesto (`docs/ui-spec.md`).
+- `preload/` la biblioteca `cxg.so` (panel, menú, exposición, DOOM y sonido) y
+  sus pruebas en QEMU (`preload/test/run.sh`); versiones probadas en
+  `preload/release/`.
+- `doom/` el programa aparte de DOOM: capa de plataforma, libc mínima, backend
+  OPL y `build.sh` (baja doomgeneric y Chocolate Doom 2.2.1 a `vendor/doom/`).
+- `tools/cxpm.py` y `tools/cxloop.c` la partición de PlayMemories desde el
+  updater (`cxdump.py pm-check`, `doom-install`, `doom-remove`).
 
 ## Siguientes pasos
 

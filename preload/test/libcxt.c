@@ -192,7 +192,13 @@ void t_w_pos(u32 self, const u32 *xy) __asm__("_ZN2ux6wgtsys6Widget11setLocalPos
 void t_w_pos(u32 self, const u32 *xy) { int i = lab_of(self); if (i >= 0) { cxt_lab[i][4] = xy[0]; cxt_lab[i][5] = xy[1]; } }
 __attribute__((target("thumb"), noinline))
 void t_w_last(u32 self) __asm__("_ZN2ux6wgtsys6Widget8moveLastEv");
-void t_w_last(u32 self) { int i = lab_of(self); if (i >= 0) cxt_lab[i][8]++; }
+extern u32 cxt_frame[12];
+void t_w_last(u32 self)
+{
+    int i = lab_of(self);
+    if (i >= 0) cxt_lab[i][8]++;
+    if (self && self == cxt_frame[0]) { cxt_frame[10]++; cxt_frame[11] = 0; }
+}
 /* Árbol falso que arma la prueba: {raíz, vista, botón, icono (hijo del botón), indicador, medidor}. */
 u32 cxt_tree[6];
 __attribute__((target("thumb"), noinline))
@@ -200,6 +206,7 @@ u32 t_w_next(u32 self) __asm__("_ZNK2ux6wgtsys6Widget14getNextSiblingEv");
 u32 t_w_next(u32 self)
 {
     if (lab_of(self) >= 0) return cxt_sibling;
+    if (self && self == cxt_frame[0]) return cxt_frame[11];
     if (self && self == cxt_tree[2]) return cxt_tree[4];
     if (self && self == cxt_tree[4]) return cxt_tree[5];
     return 0;
@@ -238,6 +245,82 @@ void t_w_passive(u32 self, u32 on) { int i = lab_of(self); if (i >= 0) cxt_lab[i
 __attribute__((target("thumb"), noinline))
 u32 t_ts_draw(u32 sprite) __asm__("_ZN2ux6gfxeng10TextSprite8drawTextEv");
 u32 t_ts_draw(u32 sprite) { (void)sprite; cxt_drawn++; return 0; }
+/*
+ * Falsos para cxframe.c: GEN_Icon, el gestor de recursos, una imagen con su
+ * bitmap GRM (320x200 con 8 píxeles de relleno por fila) y los métodos de Sprite.
+ * cxt_frame: {icono, ancho widget, alto, formato pedido, setImage (cuenta),
+ * setImageDirty (cuenta), bloqueos, rectángulos activos, ancho destino, ancho origen,
+ * veces que se trajo al frente, hermano siguiente del icono (0: es el último)}.
+ */
+#define CXT_PITCH 328
+u32 cxt_frame[12];
+unsigned short cxt_pix[CXT_PITCH * 200];
+static u32 cxt_rm_obj[2];
+u32 cxt_rm __asm__("_ZN2ux6resmgr15ResourceManager10s_instanceE") = 0;
+__attribute__((constructor)) static void cxt_rm_init(void) { cxt_rm = (u32)cxt_rm_obj; }
+u32 t_icon_ctor(u32 self) __asm__("_ZN8GEN_IconC1Ev");
+u32 t_icon_ctor(u32 self) { cxt_frame[0] = self; return self; }
+__attribute__((target("thumb"), noinline))
+void t_w_size(u32 self, u32 w, u32 h) __asm__("_ZN2ux6wgtsys6Widget7setSizeENS_4core7Fixed32ES3_");
+void t_w_size(u32 self, u32 w, u32 h) { if (self == cxt_frame[0]) { cxt_frame[1] = w; cxt_frame[2] = h; } }
+__attribute__((target("thumb"), noinline))
+void t_cip(unsigned short *p, u32 w, u32 h, u32 fmt) __asm__("_ZN2ux6resmgr16CreateImageParamC1Ettj");
+void t_cip(unsigned short *p, u32 w, u32 h, u32 fmt) { p[0] = (unsigned short)w; p[1] = (unsigned short)h; ((u32 *)p)[1] = fmt; }
+__attribute__((target("thumb"), noinline))
+u32 t_createimage(u32 rm, const unsigned short *p, u32 *img)
+    __asm__("_ZN2ux6resmgr19ResourceManagerImpl11createImageERKNS0_16CreateImageParamEPNS0_9ImageDataE");
+u32 t_createimage(u32 rm, const unsigned short *p, u32 *img)
+{
+    if (rm != (u32)cxt_rm_obj || p[0] != 320 || p[1] != 200) return 0;
+    cxt_frame[3] = ((const u32 *)p)[1];
+    img[0] = 0x51e;
+    return 1;
+}
+__attribute__((target("thumb"), noinline))
+void t_img_ctor(u32 *img) __asm__("_ZN2ux6resmgr9ImageDataC1Ev");
+void t_img_ctor(u32 *img) { img[0] = img[1] = 0; }
+__attribute__((target("thumb"), noinline))
+u32 t_img_resid(u32 *img) __asm__("_ZNK2ux6resmgr9ImageData8getResIDEv");
+u32 t_img_resid(u32 *img) { return img[0] ? 0x4242 : 0xffffffffu; }
+__attribute__((target("thumb"), noinline))
+u32 t_img_bmp(u32 *img) __asm__("_ZN2ux6resmgr9ImageData16sys_getImageDataEv");
+u32 t_img_bmp(u32 *img) { return img[0] ? 0xb17 : 0; }
+__attribute__((target("thumb"), noinline))
+int t_grm_lock(u32 bmp, int wait, void **p) __asm__("GRM_bitmapWriteLockBits");
+int t_grm_lock(u32 bmp, int wait, void **p) { (void)wait; if (bmp != 0xb17) return -1; *p = cxt_pix; cxt_frame[6]++; return 0; }
+__attribute__((target("thumb"), noinline))
+int t_grm_unlock(u32 bmp) __asm__("GRM_bitmapWriteUnlockBits");
+int t_grm_unlock(u32 bmp) { (void)bmp; return 0; }
+__attribute__((target("thumb"), noinline))
+int t_grm_rowpix(u32 bmp, unsigned short *out) __asm__("GRM_bitmapGetRowPixelCount");
+int t_grm_rowpix(u32 bmp, unsigned short *out) { (void)bmp; *out = CXT_PITCH; return 0; }
+__attribute__((target("thumb"), noinline))
+void t_spr_setimage(u32 spr, u32 id, u32 arena) __asm__("_ZN2ux6gfxeng6Sprite8setImageEjh");
+void t_spr_setimage(u32 spr, u32 id, u32 arena) { if (spr == cxt_frame[0] + 0x134 && id == 0x4242 && arena == 0x80) cxt_frame[4]++; }
+__attribute__((target("thumb"), noinline))
+void t_spr_dirty(u32 spr) __asm__("_ZN2ux6gfxeng6Sprite13setImageDirtyEv");
+void t_spr_dirty(u32 spr) { (void)spr; cxt_frame[5]++; }
+__attribute__((target("thumb"), noinline))
+void t_spr_currect(u32 spr, u32 n) __asm__("_ZN2ux6gfxeng6Sprite13setCurRectNumEt");
+void t_spr_currect(u32 spr, u32 n) { (void)spr; cxt_frame[7] = n; }
+__attribute__((target("thumb"), noinline))
+void t_spr_rpos(u32 spr, u32 i, const u32 *xy) __asm__("_ZN2ux6gfxeng6Sprite10setRectPosEtRKNS_4core7Vector2E");
+void t_spr_rpos(u32 spr, u32 i, const u32 *xy) { (void)spr; (void)i; (void)xy; }
+__attribute__((target("thumb"), noinline))
+void t_spr_roff(u32 spr, u32 i, u32 x, u32 y) __asm__("_ZN2ux6gfxeng6Sprite18setRectImageOffsetEtNS_4core7Fixed32ES3_");
+void t_spr_roff(u32 spr, u32 i, u32 x, u32 y) { (void)spr; (void)i; (void)x; (void)y; }
+__attribute__((target("thumb"), noinline))
+void t_spr_rsize(u32 spr, u32 i, u32 w, u32 h) __asm__("_ZN2ux6gfxeng6Sprite11setRectSizeEtNS_4core7Fixed32ES3_");
+void t_spr_rsize(u32 spr, u32 i, u32 w, u32 h) { (void)spr; (void)i; (void)w; (void)h; }
+__attribute__((target("thumb"), noinline))
+void t_spr_rsize6(u32 spr, u32 i, u32 dw, u32 dh, u32 sw, u32 sh, u32 flag)
+    __asm__("_ZN2ux6gfxeng6Sprite11setRectSizeEtNS_4core7Fixed32ES3_S3_S3_b");
+void t_spr_rsize6(u32 spr, u32 i, u32 dw, u32 dh, u32 sw, u32 sh, u32 flag)
+{ (void)spr; (void)i; (void)dh; (void)sh; if (!flag) { cxt_frame[8] = dw; cxt_frame[9] = sw; } }
+__attribute__((target("thumb"), noinline))
+void t_spr_filter(u32 spr, u32 on) __asm__("_ZN2ux6gfxeng6Sprite14setImageFilterEb");
+void t_spr_filter(u32 spr, u32 on) { (void)spr; (void)on; }
+
 /* ViewBase::ViewBase(ViewManager*) y ~ViewBase() falsos: cuentan y dejan pasar. */
 u32 cxt_views[4];   /* {nacidas, muertas, último this, último ViewManager} */
 u32 t_vb_ctor(u32 self, u32 mgr) __asm__("_ZN8ViewBaseC2EP11ViewManager");
@@ -284,6 +367,33 @@ u32 t_mrel(u32 ws, u32 mouse, u32 button, u32 t)
 u32 cxt_push[3];       /* {self, ev, cuenta} */
 u32 t_evpush(u32 self, u32 ev) __asm__("_ZN12EventManager4pushEP5Event");
 u32 t_evpush(u32 self, u32 ev) { cxt_push[0] = self; cxt_push[1] = ev; cxt_push[2]++; return 0; }
+
+/*
+ * El lector de pitidos de libObj.so tal cual (FUN_0044be90): fopen, fread de a
+ * 128 bytes mientras lo leído no pase de `max`, feof al quedarse corto y
+ * fclose, todo por la PLT hacia la libc de la cámara. Con un archivo de `max`
+ * bytes o más, su bucle pide 0 bytes para siempre; aquí se corta a las 100 000
+ * vueltas y devuelve -2. Si no, los bytes leídos (o -1 si falló).
+ */
+typedef struct cxt_file CXT_FILE;
+CXT_FILE *fopen(const char *, const char *);
+unsigned fread(void *, unsigned, unsigned, CXT_FILE *);
+int feof(CXT_FILE *);
+int fclose(CXT_FILE *);
+int cxt_readsound(const char *path, unsigned char *buf, int max)
+{
+    CXT_FILE *f = fopen(path, "r");
+    int got = 0, loops = 0;
+    if (!f) return -1;
+    do {
+        unsigned rem = (unsigned)(max - got), want = rem < 128 ? rem : 128, n = fread(buf + got, 1, want, f);
+        got += (int)n;
+        if (n < want) { if (!feof(f)) got = -1; break; }
+        if (++loops > 100000) { got = -2; break; }
+    } while (got <= max);
+    fclose(f);
+    return got;
+}
 
 /* CmnViewMenuData::initMenuData falso: hace de «exclusivo» y deja estados de fábrica. */
 u32 cxt_menu[5];   /* {self, root, inc, excl, cuenta} */

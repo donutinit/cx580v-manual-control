@@ -534,7 +534,7 @@ static void enforce(void)
 /* Crea, muestra u oculta. Sólo desde openView/closeView y desde el tacto. */
 static void apply(void)
 {
-    int want = cx_panel && base_movie && depth == 0, i;
+    int want = cx_panel && base_movie && depth == 0 && !cxdoom_hides_panel(), i;
     if (want && !created && !failed) create();
     if (!created) return;
     if (want != shown) {
@@ -552,6 +552,9 @@ static void apply(void)
         refresh();
     }
 }
+
+int cxpanel_base(void) { return cx_panel && base_movie && depth == 0; }
+void cxpanel_update(void) { apply(); }
 
 static int starts(const char *s, const char *prefix)
 {
@@ -640,7 +643,7 @@ void cxpanel_hook(int h)
     n_ui[h]++;
     if (h == 5) return;              /* updateResource: sólo se cuenta, puede correr a medio dibujo */
     /* Dentro de un aviso de la cámara (h = 0) no se mandan órdenes: sólo se pinta. */
-    if (h != 0) cxobj_tick();
+    if (h != 0) { cxobj_tick(); cxframe_tick(); cxdoom_tick(); }
     if (!created || !shown) return;
     refresh();
     sec = cx_now(0);
@@ -714,6 +717,9 @@ int cxpanel_press(int x, int y)
     apply();                         /* un toque también es buen momento para crear o traer al frente */
     if (!created || !shown) return 0;
     if (cx_panel_dump && !dumped) { dumped = 1; scan(1); }
+    /* Sonda: la esquina de arriba a la derecha pone y quita el cuadro de prueba. */
+    if (cx_probe && x >= 560 && y < 90) { cxframe_toggle(); return 1; }
+    if (cx_doom == 2 && !cx_probe && x >= 560 && y < 90) { cxdoom_touch_start(); return 1; }
     if (cx_panel < 2) return 0;
     for (z = 0; z < nlab; z++) {
         const int *r = cx_panel_rect[z];

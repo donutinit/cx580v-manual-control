@@ -170,6 +170,14 @@ def snapshot_setting(session, kind):
 
 def cmd_guard(args):
     import cxguard
+    # Libraries we released, so the one on the camera can be sized by its md5.
+    release = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'preload', 'release')
+    if os.path.isdir(release):
+        for name in os.listdir(release):
+            if name.endswith('.so'):
+                with open(os.path.join(release, name), 'rb') as f:
+                    data = f.read()
+                cxguard.KNOWN_LIBRARIES[cxguard.md5(data)] = len(data)
     library = None
     config = None
     if args.cmd == 'guard-install':
@@ -190,6 +198,9 @@ def cmd_guard(args):
         'guard-remove': 'delete %s, %s, %s and %s' % (cxguard.DMODE_PATH, cxguard.ENV_PATH, cxguard.SO_PATH, cxguard.INH_PATH),
         'guard-fetch': ('delete %s after copying them' % ', '.join(cxguard.DUMP_PATHS)) if getattr(args, 'delete', False) else None,
     }
+    if getattr(args, 'doom', False):
+        doom_files()                   # fail before rebooting the camera if one is missing
+        actions[args.cmd] += '; and CXDOOM.BIN and DOOM1.WAD to the PlayMemories partition (/dev/nflasha12)'
     if actions[args.cmd] and not confirm(args, actions[args.cmd]):
         print('Cancelled, nothing was sent to the camera.')
         return 1
@@ -223,6 +234,60 @@ def cmd_guard(args):
              'guard-remove': lambda: cxguard.remove(fs)}[args.cmd]()
         print('After:')
         print_guard_status(s)
+        # In the same updater session, so the owner does not have to enter it twice.
+        if getattr(args, 'doom', False):
+            pm_install(session)
+        elif getattr(args, 'pm_check', False):
+            pm_check(session)
+
+    run_in_updater(args.model, args.region, work)
+
+
+DOOM_FILES = (('CXDOOM.BIN', os.path.join('doom', 'build', 'CXDOOM.BIN')),
+              ('DOOM1.WAD', os.path.join('vendor', 'doom', 'wad', 'doom1.wad')))
+
+
+def doom_files():
+    """The DOOM program and the shareware WAD, as {NAME: bytes}."""
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    files = {}
+    for name, rel in DOOM_FILES:
+        with open(os.path.join(root, rel), 'rb') as f:
+            files[name] = f.read()
+    return files
+
+
+def pm_check(session):
+    import cxpm
+    info = cxpm.check(session, cxpm.load_helper())
+    print('PlayMemories partition (%s), read-only look:\n%s\nfree %d KiB' % (cxpm.DEVICE, info['listing'], info['free'] // 1024))
+
+
+def pm_install(session):
+    import cxpm
+    cxpm.install(session, cxpm.load_helper(), doom_files(), default_outdir('doom-install'))
+
+
+def cmd_pm(args):
+    import cxpm
+    what = {'pm-check': None,
+            'doom-install': 'add %s to the PlayMemories partition (%s)' % (' and '.join(n for n, _ in DOOM_FILES), cxpm.DEVICE),
+            'doom-remove': 'delete %s from the PlayMemories partition (%s)' % (' and '.join(n for n, _ in DOOM_FILES), cxpm.DEVICE)}[args.cmd]
+    if args.cmd == 'doom-install':
+        doom_files()                   # fail before rebooting the camera if one is missing
+    if what and not args.yes:
+        print('This WRITES to the camera flash: %s' % what)
+        if input('Type "si" to continue: ').strip().lower() != 'si':
+            print('Cancelled, nothing was sent to the camera.')
+            return 1
+
+    def work(session):
+        if args.cmd == 'pm-check':
+            pm_check(session)
+        elif args.cmd == 'doom-install':
+            pm_install(session)
+        else:
+            cxpm.remove(session, cxpm.load_helper(), [n for n, _ in DOOM_FILES], default_outdir('doom-remove'))
 
     run_in_updater(args.model, args.region, work)
 
@@ -258,8 +323,17 @@ def main():
             s.add_argument('--mode', choices=('iris', 'shutter', 'agc', 'aeshift', 'wbshift'),
                            help='test mode: the Exposure screen opens this view instead')
             s.add_argument('--config', help='cxmode.txt to install (see preload/cxview.c), e.g. preload/cxmode-v5.txt')
+            s.add_argument('--pm-check', action='store_true',
+                           help='afterwards, mount the PlayMemories partition read-only and list it (writes nothing)')
+            s.add_argument('--doom', action='store_true',
+                           help='afterwards, copy doom/build/CXDOOM.BIN and the shareware WAD to the PlayMemories partition')
         if name == 'guard-fetch':
             s.add_argument('--delete', action='store_true', help='delete the dump from the camera after copying it')
+
+    for name in ('pm-check', 'doom-install', 'doom-remove'):
+        s = sub.add_parser(name)
+        camera_args(s)
+        s.add_argument('--yes', action='store_true', help='do not ask for confirmation')
 
     args = p.parse_args()
     if args.cmd != 'verify' and not cxprobe.ensure_unmounted(args.unmount):
@@ -267,6 +341,8 @@ def main():
     commands = {'recon': cmd_recon, 'dump': cmd_dump, 'verify': cmd_verify, 'shell': cmd_shell}
     if args.cmd.startswith('guard-'):
         commands[args.cmd] = cmd_guard
+    if args.cmd in ('pm-check', 'doom-install', 'doom-remove'):
+        commands[args.cmd] = cmd_pm
     try:
         return commands[args.cmd](args) or 0
     except NotInUpdater as e:
